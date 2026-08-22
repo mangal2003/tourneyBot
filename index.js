@@ -701,3 +701,12 @@ mongoose
   .catch((err) => {
     console.error("MongoDB connection error:", err);
   });
+
+// Add this near the bottom of app.js
+const http = require("http");
+const PORT = process.env.PORT || 3000;
+http
+  .createServer((req, res) => res.end("PlatoBot is online!"))
+  .listen(PORT, () => {
+    console.log(`Web server listening on port ${PORT}`);
+  });
