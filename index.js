@@ -12,6 +12,7 @@ const {
   PermissionFlagsBits,
 } = require("discord.js");
 const mongoose = require("mongoose");
+const http = require("http");
 
 // ==========================================
 // 1. MONGOOSE SCHEMAS & MODELS
@@ -285,7 +286,7 @@ client.on("interactionCreate", async (interaction) => {
 
     if (commandName === "setup") {
       if (
-        !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)
+        !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
       ) {
         return interaction.reply({
           content: "You need `Manage Server` permissions to run `/setup`.",
@@ -298,7 +299,7 @@ client.on("interactionCreate", async (interaction) => {
       await GuildConfig.findOneAndUpdate(
         { guildId: interaction.guildId },
         { tourneyChannelId: targetChannel.id },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: "after" },
       );
 
       return interaction.reply({
@@ -317,7 +318,7 @@ client.on("interactionCreate", async (interaction) => {
       await User.findOneAndUpdate(
         { discordId: interaction.user.id },
         { platoId, favGames },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: "after" },
       );
 
       return interaction.reply({
@@ -367,7 +368,6 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (commandName === "tourney") {
-      // Channel locking enforcement
       const config = await GuildConfig.findOne({
         guildId: interaction.guildId,
       });
@@ -442,7 +442,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (sub === "start") {
         if (
-          !interaction.member.permissions.has(PermissionFlagsBits.ManageEvents)
+          !interaction.memberPermissions?.has(PermissionFlagsBits.ManageEvents)
         ) {
           return interaction.reply({
             content:
@@ -515,7 +515,7 @@ client.on("interactionCreate", async (interaction) => {
 
       if (sub === "cancel") {
         if (
-          !interaction.member.permissions.has(PermissionFlagsBits.ManageEvents)
+          !interaction.memberPermissions?.has(PermissionFlagsBits.ManageEvents)
         ) {
           return interaction.reply({
             content:
@@ -592,7 +592,7 @@ client.on("interactionCreate", async (interaction) => {
     // Staff Select Winner / Reset
     if (customId.startsWith("win:") || customId.startsWith("reset:")) {
       if (
-        !interaction.member.permissions.has(PermissionFlagsBits.ManageEvents)
+        !interaction.memberPermissions?.has(PermissionFlagsBits.ManageEvents)
       ) {
         return interaction.reply({
           content:
@@ -690,7 +690,7 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // ==========================================
-// 5. DATABASE CONNECTION & LOGIN
+// 5. DATABASE CONNECTION, LOGIN & HTTP SERVER
 // ==========================================
 mongoose
   .connect(process.env.MONGO_URI)
@@ -702,11 +702,12 @@ mongoose
     console.error("MongoDB connection error:", err);
   });
 
-// Add this near the bottom of app.js
-const http = require("http");
 const PORT = process.env.PORT || 3000;
 http
-  .createServer((req, res) => res.end("PlatoBot is online!"))
+  .createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("PlatoBot is online!");
+  })
   .listen(PORT, () => {
     console.log(`Web server listening on port ${PORT}`);
   });
