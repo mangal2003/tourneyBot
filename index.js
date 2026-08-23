@@ -31,7 +31,121 @@ process.on("uncaughtException", (error) => {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ==========================================
-// 2. DATASETS & STYLING UTILITIES
+// 2. LIVE API FETCHERS WITH HEADERS & FALLBACKS
+// ==========================================
+const HTTP_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  Accept: "application/json, text/plain, */*",
+};
+
+const FALLBACK_ROASTS = [
+  "You play like your screen brightness is set to 0. (ノ°Д°）ノ︵ ┻━┻",
+  "Even an easy bot has cleaner mechanics than you. ¯\\_(ツ)_/¯",
+  "You're the reason your bracket group was finished in 3 minutes. (￣▽￣*)ゞ",
+  "I've seen Uno reverses sharper than your gameplay. ＼（〇_ｏ）／",
+  "Brain.exe has stopped responding. (×_×)",
+  "Bro is clicking buttons based on pure vibes. ( ˘ω˘ )",
+  "WiFi isn't the problem, your gameplay is. ( ͡° ͜ʖ ͡°)",
+];
+
+const FALLBACK_PRAISES = [
+  "Literal god gamer right here! (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧",
+  "Main character energy detected. ( ▀ ͜ʖ ͡・)",
+  "Cleanest execution I've ever seen! ٩(◕‿◕｡)۶",
+  "Carrying the entire server on your back. ᕙ(▀̿̿Ĺ̯̿̿▀̿ ̿)ᕗ",
+  "Your gaming IQ is beyond human comprehension! (★ω★)",
+];
+
+const FALLBACK_ORACLES = [
+  "The stars say YES, but your skill issue says absolutely not. ¯\\_(ツ)_/¯",
+  "Outlook is as dark as your Plato match history. (╥﹏╥)",
+  "Without a doubt... unless you choke at the last second. ( ͡° ͜ʖ ͡°)",
+  "Ask again when your WiFi actually works. ＼（〇_ｏ）／",
+  "Signs point to absolute disaster. (╯°□°)╯︵ ┻━┻",
+  "Yes, 100% guaranteed by the Ocho Gods! (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧",
+  "Don't count on it. Even an AI wouldn't bet on that. 凸(￣ヘ￣)",
+];
+
+const FALLBACK_SUS = [
+  "Caught throwing the 8-Ball match on purpose.",
+  "Blaming latency after missing a completely stationary shot.",
+  "Secretly googling Plato strategy guides mid-match.",
+  "Pretending their phone died after getting 4 Draw cards in Ocho.",
+  "Flexing an unearned win in global chat.",
+  "Button-mashing and claiming it was 200 IQ calculated strategy.",
+];
+
+async function fetchLiveRoast() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(
+      "https://v2.jokeapi.dev/joke/Dark,Pun?blacklistFlags=nsfw,religious,racist,sexist&type=single",
+      { headers: HTTP_HEADERS, signal: controller.signal },
+    );
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.joke) return data.joke.trim();
+    }
+  } catch {}
+  return FALLBACK_ROASTS[Math.floor(Math.random() * FALLBACK_ROASTS.length)];
+}
+
+async function fetchLivePraise() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch("https://affirmations.dev/", {
+      headers: HTTP_HEADERS,
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.affirmation) return `${data.affirmation}! ٩(◕‿◕｡)۶`;
+    }
+  } catch {}
+  return FALLBACK_PRAISES[Math.floor(Math.random() * FALLBACK_PRAISES.length)];
+}
+
+async function fetchLiveOracle() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(
+      `https://api.adviceslip.com/advice?t=${Date.now()}`,
+      { headers: HTTP_HEADERS, signal: controller.signal },
+    );
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.slip?.advice) return data.slip.advice.trim();
+    }
+  } catch {}
+  return FALLBACK_ORACLES[Math.floor(Math.random() * FALLBACK_ORACLES.length)];
+}
+
+async function fetchLiveSusCrime() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(
+      "https://v2.jokeapi.dev/joke/Miscellaneous,Pun?blacklistFlags=nsfw,religious,political,racist,sexist,explicit&type=single",
+      { headers: HTTP_HEADERS, signal: controller.signal },
+    );
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.joke) return data.joke.trim();
+    }
+  } catch {}
+  return FALLBACK_SUS[Math.floor(Math.random() * FALLBACK_SUS.length)];
+}
+
+// ==========================================
+// 3. DATASETS & STYLING UTILITIES
 // ==========================================
 const FANCY_STYLES = {
   happy: [
@@ -108,44 +222,7 @@ const FANCY_STYLES = {
     "♪ヽ(･ˇ∀ˇ･ゞ)",
     "ヾ(⌐■_■)ノ♪",
   ],
-  roast: [
-    "You play like your screen brightness is at 0. (ノ°Д°）ノ︵ ┻━┻",
-    "Even an easy bot has cleaner mechanics than you. ¯\\_(ツ)_/¯",
-    "You're the reason your bracket group was finished in 3 minutes. (￣▽￣*)ゞ",
-    "I've seen Uno reverses sharper than your gameplay. ＼（〇_ｏ）／",
-    "Brain.exe has stopped responding. (×_×)",
-    "Bro is clicking buttons based on pure vibes. ( ˘ω˘ )",
-    "WiFi isn't the problem, your gameplay is. ( ͡° ͜ʖ ͡°)",
-  ],
-  praise: [
-    "Literal god gamer right here! (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧",
-    "Main character energy detected. ( ▀ ͜ʖ ͡・)",
-    "Cleanest execution I've ever seen! ٩(◕‿◕｡)۶",
-    "Carrying the entire server on your back. ᕙ(▀̿̿Ĺ̯̿̿▀̿ ̿)ᕗ",
-  ],
 };
-
-const ORACLE_ANSWERS = [
-  "Outlook is brighter than your future in competitive gaming. ٩(◕‿◕｡)۶",
-  "The stars say YES, but your skill issue says absolutely not. ¯\\_(ツ)_/¯",
-  "Outlook is as dark as your Plato match history. (╥﹏╥)",
-  "Without a doubt... unless you choke at the last second. ( ͡° ͜ʖ ͡°)",
-  "Ask again when your WiFi actually works. ＼（〇_ｏ）／",
-  "Signs point to absolute disaster. (╯°□°)╯︵ ┻━┻",
-  "Yes, 100% guaranteed by the Ocho Gods! (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧",
-  "Don't count on it. Even an AI wouldn't bet on that. 凸(￣ヘ￣)",
-  "My sources say you need to touch some grass first. ʕ •̀ o •́ ʔ",
-  "Most likely, but don't blame me when it backfires. (¬‿¬)",
-];
-
-const SUS_CRIMES = [
-  "Caught throwing the 8-Ball match on purpose.",
-  "Blaming latency after missing a completely stationary shot.",
-  "Secretly googling Plato strategy guides mid-match.",
-  "Pretending their phone died after getting 4 Draw cards in Ocho.",
-  "Flexing an unearned win in global chat.",
-  "Button-mashing and claiming it was 200 IQ calculated strategy.",
-];
 
 const ANIME_DUEL_MOVES = [
   {
@@ -154,7 +231,7 @@ const ANIME_DUEL_MOVES = [
     maxDmg: 32,
     p1Pose: "━╤デ╦︻(▀̿̿Ĺ̯̿̿▀̿ ̿)",
     p2Pose: "(°ロ°) !",
-    text: "calculated the geometry of the universe and sniped",
+    text: "calculated cosmic geometry and hyper-sniped",
   },
   {
     name: "Wild Draw-4 Card Barrage",
@@ -170,7 +247,7 @@ const ANIME_DUEL_MOVES = [
     maxDmg: 42,
     p1Pose: "(ノಠ益ಠ)ノ彡┻━┻",
     p2Pose: "＼（〇_ｏ）／",
-    text: "raged beyond human limits and shattered a whole oak table into",
+    text: "shattered the physics engine and launched an oak table into",
   },
   {
     name: "Lag Teleport Strike",
@@ -178,7 +255,7 @@ const ANIME_DUEL_MOVES = [
     maxDmg: 28,
     p1Pose: "ヘ(^_^ヘ) ~ 💨",
     p2Pose: "(⊙_⊙)？",
-    text: "abused 999ms ping, vanished from reality, and backstabbed",
+    text: "exploited 999ms ping, vanished from reality, and backstabbed",
   },
   {
     name: "Bowling Ball Meteor Strike",
@@ -186,7 +263,7 @@ const ANIME_DUEL_MOVES = [
     maxDmg: 45,
     p1Pose: "ᕦ(ò_óˇ)ᕤ 🎳",
     p2Pose: "☠️ (×﹏×)",
-    text: "hurled an oversized Plato bowling ball at supersonic speed towards",
+    text: "hurled a titanium bowling ball at supersonic speed towards",
   },
 ];
 
@@ -197,11 +274,9 @@ const RAGEBAIT_FLAVORS = [
       .map((c, i) => (i % 2 === 0 ? c.toLowerCase() : c.toUpperCase()))
       .join(""),
   (text) => text.split(" ").join(" 👏 "),
-  (text) => `Bro actually unironically typed "${text}" with a straight face 💀`,
-  (text) =>
-    `"${text.toUpperCase()}" — says the one who got eliminated Round 1 😭`,
-  (text) =>
-    `Imagine thinking "${text}" was a valid point in the year 2026 ( ˘ω˘ )`,
+  (text) => `Bro actually typed "${text}" with a straight face 💀`,
+  (text) => `"${text.toUpperCase()}" — says the one hardstuck in tutorial 😭`,
+  (text) => `Imagine unironically saying "${text}" in 2026 ( ˘ω˘ )`,
 ];
 
 const RAGEBAIT_EMOTES = [
@@ -233,7 +308,7 @@ function renderHealthBar(current, max = 100) {
     Math.min(totalBars, Math.round((current / max) * totalBars)),
   );
   const empty = totalBars - filled;
-  return `[${"█".repeat(filled)}${"░".repeat(empty)}] ${Math.max(0, current)}/${max} HP`;
+  return `\`[${"█".repeat(filled)}${"░".repeat(empty)}]\` **${Math.max(0, current)}/${max} HP**`;
 }
 
 function toVaporwave(text) {
@@ -253,7 +328,7 @@ function toVaporwave(text) {
 async function safeReply(interaction, options) {
   try {
     if (interaction.deferred || interaction.replied) {
-      return await interaction.followUp(options);
+      return await interaction.editReply(options);
     }
     return await interaction.reply(options);
   } catch (err) {
@@ -263,7 +338,7 @@ async function safeReply(interaction, options) {
 }
 
 // ==========================================
-// 3. MONGOOSE SCHEMAS & MODELS
+// 4. MONGOOSE SCHEMAS & MODELS
 // ==========================================
 const UserSchema = new mongoose.Schema({
   discordId: { type: String, required: true, unique: true },
@@ -311,7 +386,7 @@ const Tournament = mongoose.model("Tournament", TournamentSchema);
 const GuildConfig = mongoose.model("GuildConfig", GuildConfigSchema);
 
 // ==========================================
-// 4. BRACKET UTILITIES
+// 5. BRACKET & UI HELPERS
 // ==========================================
 const FORMAT_SIZES = {
   "1v1": 2,
@@ -351,12 +426,20 @@ function generateRoundMatches(participantEntries, format, roundNumber) {
 }
 
 async function buildMatchCard(tourney, match) {
+  const isDone = match.status === "COMPLETED";
+  const statusBadge = isDone ? "🟢MATCH CONCLUDED" : "⚡IN PROGRESS";
+
   const embed = new EmbedBuilder()
-    .setTitle(`${tourney.name} — Round ${match.round}`)
+    .setColor(isDone ? 0x00f5d4 : 0x5865f2)
+    .setAuthor({
+      name: `🏆 ${tourney.name.toUpperCase()} • ROUND ${match.round}`,
+      iconURL: "https://i.imgur.com/v8tTj8z.png",
+    })
+    .setTitle(`⚔️ MATCH ID: \`${match.matchId}\``)
     .setDescription(
-      `**Match:** \`${match.matchId}\`\n**Game:** ${tourney.game} (${tourney.format})`,
-    )
-    .setColor(match.status === "COMPLETED" ? 0x57f287 : 0x5865f2);
+      `\`\`\`fix\n[${tourney.game.toUpperCase()}] • [${tourney.format}] • [${statusBadge}]\n\`\`\`\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    );
 
   const playerDetails = [];
 
@@ -369,27 +452,42 @@ async function buildMatchCard(tourney, match) {
       .map((id) => {
         const profile = profiles.find((p) => p.discordId === id);
         const platoTag = profile
-          ? `(Plato: **${profile.platoId}**)`
+          ? `(Plato: \`${profile.platoId}\`)`
           : "(Plato: *Unlinked*)";
         return `<@${id}> ${platoTag}`;
       })
       .join(" & ");
 
-    playerDetails.push(`**Slot ${i + 1}:** ${details}`);
+    const isWinner = match.winner === entry;
+    playerDetails.push(
+      `${isWinner ? "👑" : `🔹`} **SLOT ${i + 1}:** ${details}`,
+    );
   }
 
   embed.addFields(
-    { name: "Participants", value: playerDetails.join("\n") },
     {
-      name: "Status",
+      name: "👥 PARTICIPANTS",
+      value: playerDetails.join("\n"),
+      inline: false,
+    },
+    {
+      name: "🏆 CURRENT STANDING",
       value: match.winner
-        ? `🏆 Winner: ${match.winner
+        ? `> 🎖️ **Winner:** ${match.winner
             .split(",")
             .map((id) => `<@${id}>`)
-            .join(" & ")}`
-        : "⏳ In Progress",
+            .join(" & ")} \`(Victory Secured)\``
+        : `> ⏳ *Awaiting match confirmation by event staff...*`,
+      inline: false,
     },
   );
+
+  embed
+    .setFooter({
+      text: "Tournament Engine • Automated Bracket System",
+      iconURL: "https://i.imgur.com/v8tTj8z.png",
+    })
+    .setTimestamp();
 
   const row = new ActionRowBuilder();
 
@@ -400,7 +498,7 @@ async function buildMatchCard(tourney, match) {
         .setCustomId(`win:${tourney._id}:${match.matchId}:${idx}`)
         .setLabel(`Slot ${idx + 1} Win`)
         .setStyle(isWinner ? ButtonStyle.Success : ButtonStyle.Primary)
-        .setDisabled(match.status === "COMPLETED" && isWinner),
+        .setDisabled(isDone && isWinner),
     );
   });
 
@@ -415,7 +513,7 @@ async function buildMatchCard(tourney, match) {
 }
 
 // ==========================================
-// 5. SLASH & CONTEXT COMMAND DEFINITIONS
+// 6. SLASH & CONTEXT COMMAND DEFINITIONS
 // ==========================================
 const commands = [
   new SlashCommandBuilder()
@@ -429,7 +527,7 @@ const commands = [
       opt
         .setName("category")
         .setDescription(
-          "Type to search: rage, tableflip, cat, bear, roast, smug, etc.",
+          "Type to search: rage, tableflip, cat, bear, roast, praise, smug, etc.",
         )
         .setRequired(true)
         .setAutocomplete(true),
@@ -468,7 +566,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName("oracle")
     .setDescription(
-      "🔮 Ask the unhinged kaomoji oracle for a sarcastic fortune",
+      "🔮 Ask the live oracle API for unpredictable fortunes & advice",
     )
     .setIntegrationTypes([0, 1])
     .setContexts([0, 1, 2])
@@ -481,7 +579,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("sus")
-    .setDescription("📦 Run a lie detector & diagnostic scan on a player")
+    .setDescription("📦 Run a lie detector & live crime scan on a player")
     .setIntegrationTypes([0, 1])
     .setContexts([0, 1, 2])
     .addUserOption((opt) =>
@@ -612,7 +710,7 @@ const commands = [
 ];
 
 // ==========================================
-// 6. CLIENT INITIALIZATION & EVENTS
+// 7. CLIENT INITIALIZATION & EVENTS
 // ==========================================
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
@@ -638,18 +736,22 @@ client.on("interactionCreate", async (interaction) => {
     // --- A. AUTOCOMPLETE HANDLER ---
     if (interaction.isAutocomplete()) {
       if (interaction.commandName === "kaomoji") {
-        const focusedValue = interaction.options.getFocused().toLowerCase();
-        const choices = Object.keys(FANCY_STYLES);
-        const filtered = choices
-          .filter((choice) => choice.toLowerCase().includes(focusedValue))
-          .slice(0, 25);
+        try {
+          const focusedValue = interaction.options.getFocused().toLowerCase();
+          const choices = [...Object.keys(FANCY_STYLES), "roast", "praise"];
+          const filtered = choices
+            .filter((choice) => choice.toLowerCase().includes(focusedValue))
+            .slice(0, 25);
 
-        await interaction.respond(
-          filtered.map((choice) => ({
-            name: `${choice.toUpperCase()} (${FANCY_STYLES[choice].length} options)`,
-            value: choice,
-          })),
-        );
+          await interaction.respond(
+            filtered.map((choice) => ({
+              name: `${choice.toUpperCase()}`,
+              value: choice,
+            })),
+          );
+        } catch (err) {
+          if (err.code === 40060 || err.code === 10062) return;
+        }
       }
       return;
     }
@@ -662,9 +764,23 @@ client.on("interactionCreate", async (interaction) => {
         const originalContent = targetMsg.content || "[Non-text attachment]";
         const ragebaitResult = generateRagebait(originalContent);
 
-        return safeReply(interaction, {
-          content: `> **${author.username}:** *${originalContent}*\n\n${ragebaitResult}`,
-        });
+        const embed = new EmbedBuilder()
+          .setColor(0xff0055)
+          .setAuthor({
+            name: `RAGEBAIT TRANSFORMER`,
+            iconURL: author.displayAvatarURL(),
+          })
+          .setDescription(
+            `\`\`\`text\n"${originalContent}"\n\`\`\`\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `### 🎯 **TRANSLATED ROAST:**\n${ragebaitResult}`,
+          )
+          .setFooter({
+            text: `Target: @${author.username}`,
+            iconURL: interaction.user.displayAvatarURL(),
+          });
+
+        return safeReply(interaction, { embeds: [embed] });
       }
     }
 
@@ -678,33 +794,85 @@ client.on("interactionCreate", async (interaction) => {
           .getString("category")
           .toLowerCase();
         const target = interaction.options.getUser("target");
+
+        if (category === "roast" || category === "praise") {
+          if (!interaction.deferred && !interaction.replied) {
+            await interaction.deferReply().catch(() => {});
+          }
+          const liveText =
+            category === "roast"
+              ? await fetchLiveRoast()
+              : await fetchLivePraise();
+
+          const isRoast = category === "roast";
+          const embed = new EmbedBuilder()
+            .setColor(isRoast ? 0xff4500 : 0x00f5d4)
+            .setAuthor({
+              name: isRoast ? "🔥 SAVAGE ROAST" : "✨ DIVINE PRAISE",
+              iconURL: interaction.user.displayAvatarURL(),
+            })
+            .setDescription(
+              `${target ? `> 🎯 **Target:** ${target}\n` : ""}` +
+                `\`\`\`fix\n${liveText}\n\`\`\`\n` +
+                `### ${isRoast ? "(ノ°Д°）ノ︵ ┻━┻" : "(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧"}`,
+            )
+            .setFooter({ text: "Generated via AI" });
+
+          return interaction.editReply({ embeds: [embed] }).catch(() => {});
+        }
+
         const list = FANCY_STYLES[category] || FANCY_STYLES.happy;
         const pick = list[Math.floor(Math.random() * list.length)];
 
-        if (category === "roast" || category === "praise") {
-          const text = target ? `${target}, ${pick}` : pick;
-          return safeReply(interaction, { content: text });
-        }
+        const embed = new EmbedBuilder()
+          .setColor(0x5865f2)
+          .setAuthor({
+            name: `KAOMOJI EXPRESSION • [${category.toUpperCase()}]`,
+            iconURL: interaction.user.displayAvatarURL(),
+          })
+          .setDescription(
+            `${target ? `> ➔ Directed towards: ${target}\n\n` : ""}` +
+              `# ${pick}`,
+          );
 
-        const response = target
-          ? `${interaction.user} ➔ ${target}\n### ${pick}`
-          : `### ${pick}`;
-
-        return safeReply(interaction, { content: response });
+        return safeReply(interaction, { embeds: [embed] });
       }
 
       // 2. FANCY VAPORWAVE TEXT
       if (commandName === "fancy") {
         const rawText = interaction.options.getString("text");
         const vaporText = toVaporwave(rawText);
-        return safeReply(interaction, { content: vaporText });
+
+        const embed = new EmbedBuilder()
+          .setColor(0xff77a8)
+          .setAuthor({
+            name: "ＡＥＳＴＨＥＴＩＣ  ＴＥＸＴ  ＧＥＮＥＲＡＴＯＲ",
+            iconURL: interaction.user.displayAvatarURL(),
+          })
+          .setDescription(`\`\`\`fix\n${vaporText}\n\`\`\``)
+          .setFooter({ text: "Vaporwave Typography" });
+
+        return safeReply(interaction, { embeds: [embed] });
       }
 
       // 3. RAGEBAIT (SLASH)
       if (commandName === "ragebait") {
         const rawText = interaction.options.getString("text");
         const ragebaitResult = generateRagebait(rawText);
-        return safeReply(interaction, { content: ragebaitResult });
+
+        const embed = new EmbedBuilder()
+          .setColor(0xff0055)
+          .setAuthor({
+            name: "🔥 RAGEBAIT TRANSLATOR",
+            iconURL: interaction.user.displayAvatarURL(),
+          })
+          .setDescription(
+            `\`\`\`text\n"${rawText}"\n\`\`\`\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `### 🎯 **REACTION:**\n${ragebaitResult}`,
+          );
+
+        return safeReply(interaction, { embeds: [embed] });
       }
 
       // 4. ANIMATED ANIME DUEL
@@ -725,14 +893,15 @@ client.on("interactionCreate", async (interaction) => {
 
         let duelEmbed = new EmbedBuilder()
           .setTitle(
-            `⚔️ ANIME DUEL: ${initiator.username} vs ${opponent.username}`,
+            `⚔️ ANIME DUEL: ${initiator.username.toUpperCase()} VS ${opponent.username.toUpperCase()}`,
           )
           .setColor(0xffaa00)
+          .setThumbnail("https://i.imgur.com/8Qe7O7S.png")
           .setDescription(
-            `### ⚡ FIGHTERS ARE ENTERING THE ARENA...\n\n` +
-              `**${initiator.username}** ${renderHealthBar(p1Hp, maxHp)}\n` +
-              `**${opponent.username}** ${renderHealthBar(p2Hp, maxHp)}\n\n` +
-              `*(ง •̀_•́)ง ═════════ ⚔️ ═════════ ᕦ(ò_óˇ)ᕤ*`,
+            `\`\`\`fix\n[⚡ARENA GATES OPENING • BATTLE COMMENCING...]\n\`\`\`\n` +
+              `> 👤 **${initiator.username}:** ${renderHealthBar(p1Hp, maxHp)}\n` +
+              `> 👤 **${opponent.username}:** ${renderHealthBar(p2Hp, maxHp)}\n\n` +
+              `\`\`\`text\n(ง •̀_•́)ง ═══════════════ ⚔️ ═══════════════ ᕦ(ò_óˇ)ᕤ\n\`\`\``,
           );
 
         await interaction.reply({ embeds: [duelEmbed] });
@@ -754,26 +923,27 @@ client.on("interactionCreate", async (interaction) => {
 
           if (turn === 1) {
             p2Hp = Math.max(0, p2Hp - dmg);
-            lastActionLog = `💥 **${initiator.username}** used **[${move.name}]**!\n*${move.text} ${opponent.username} for **${dmg} DMG!***`;
+            lastActionLog = `💥 **${initiator.username}** unleashed **[${move.name}]**!\n> *${move.text} ${opponent.username} for **${dmg} CRIT DMG!***`;
             arenaVisual = `${move.p1Pose} ━━━━━━💥━━━━━━▶ ${move.p2Pose}`;
             turn = 2;
           } else {
             p1Hp = Math.max(0, p1Hp - dmg);
-            lastActionLog = `💥 **${opponent.username}** used **[${move.name}]**!\n*${move.text} ${initiator.username} for **${dmg} DMG!***`;
+            lastActionLog = `💥 **${opponent.username}** unleashed **[${move.name}]**!\n> *${move.text} ${initiator.username} for **${dmg} CRIT DMG!***`;
             arenaVisual = `${move.p2Pose} ◀━━━━━━💥━━━━━━ ${move.p1Pose}`;
             turn = 1;
           }
 
           duelEmbed = new EmbedBuilder()
             .setTitle(
-              `⚔️ ROUND ${roundNum}: ${initiator.username} VS ${opponent.username}`,
+              `⚔️ ROUND ${roundNum}: ${initiator.username.toUpperCase()} VS ${opponent.username.toUpperCase()}`,
             )
             .setColor(0xff4500)
             .setDescription(
-              `### ${arenaVisual}\n\n` +
-                `**${initiator.username}:** ${renderHealthBar(p1Hp, maxHp)}\n` +
-                `**${opponent.username}:** ${renderHealthBar(p2Hp, maxHp)}\n\n` +
-                `**Latest Move:**\n${lastActionLog}`,
+              `\`\`\`text\n${arenaVisual}\n\`\`\`\n` +
+                `> 👤 **${initiator.username}:** ${renderHealthBar(p1Hp, maxHp)}\n` +
+                `> 👤 **${opponent.username}:** ${renderHealthBar(p2Hp, maxHp)}\n\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `### ⚡ACTION LOG:\n${lastActionLog}`,
             );
 
           await interaction.editReply({ embeds: [duelEmbed] }).catch(() => {});
@@ -788,69 +958,105 @@ client.on("interactionCreate", async (interaction) => {
         const winnerHp = Math.max(p1Hp, p2Hp);
 
         const finalEmbed = new EmbedBuilder()
-          .setTitle(`🏆 K.O.! ${winner.username.toUpperCase()} IS VICTORIOUS!`)
-          .setColor(0x57f287)
+          .setTitle(`🏆 KNOCKOUT! ${winner.username.toUpperCase()} WINS!`)
+          .setColor(0x00f5d4)
+          .setThumbnail(winner.displayAvatarURL())
           .setDescription(
-            `### 👑 **CHAMPION:** ${winner} (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧\n` +
-              `💀 **KNOCKED OUT:** ${loser} *(x_x)⌒☆*\n\n` +
-              `**Remaining Health:** ${renderHealthBar(winnerHp, maxHp)}\n\n` +
-              `> *"Another warrior falls in the Plato battlegrounds."*`,
-          );
+            `\`\`\`fix\n[ 👑 CHAMPION CROWNED: ${winner.username.toUpperCase()} ]\n\`\`\`\n` +
+              `> 🌟 **WINNER:** ${winner} \`(Survived with ${winnerHp} HP)\`\n` +
+              `> 💀 **DEFEATED:** ${loser} *(x_x)⌒☆*\n\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `### 🎖️ FINAL HEALTH METRICS:\n` +
+              `> ${renderHealthBar(winnerHp, maxHp)}\n\n` +
+              `> *"Another warrior falls into the archives."*`,
+          )
+          .setFooter({ text: "Anime Combat Simulator • 2026 Engine" });
 
         return interaction.editReply({ embeds: [finalEmbed] }).catch(() => {});
       }
 
-      // 5. UNHINGED ORACLE
+      // 5. UNHINGED ORACLE (REDESIGNED LUXURY EMBED)
       if (commandName === "oracle") {
+        if (!interaction.deferred && !interaction.replied) {
+          await interaction.deferReply().catch(() => {});
+        }
         const question = interaction.options.getString("question");
-        const answer =
-          ORACLE_ANSWERS[Math.floor(Math.random() * ORACLE_ANSWERS.length)];
+        const answer = await fetchLiveOracle();
 
         const embed = new EmbedBuilder()
-          .setTitle("🔮 The Unhinged Kaomoji Oracle")
           .setColor(0x9b59b6)
-          .addFields(
-            { name: "❓ Your Question", value: `*${question}*` },
-            { name: "📜 Prophecy", value: `### ${answer}` },
-          );
+          .setAuthor({
+            name: "MYSTICAL PROPHECY & COSMIC GUIDANCE",
+            iconURL: "https://i.imgur.com/G5qZp3T.png",
+          })
+          .setTitle("🔮 The Unhinged Kaomoji Oracle")
+          .setDescription(
+            `\`\`\`fix\n[QUESTION:"${question}"]\n\`\`\`\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `### 📜 **THE REVELATION:**\n` +
+              `> *" ${answer} "*\n\n` +
+              `\`\`\`text\n( ˘ω˘ )...The cosmos have spoken.\n\`\`\``,
+          )
+          .setFooter({
+            text: `Queried by @${interaction.user.username}`,
+            iconURL: interaction.user.displayAvatarURL(),
+          })
+          .setTimestamp();
 
-        return safeReply(interaction, { embeds: [embed] });
+        return interaction.editReply({ embeds: [embed] }).catch(() => {});
       }
 
-      // 6. SUS LIE DETECTOR
+      // 6. SUS LIE DETECTOR (REDESIGNED SCANNER EMBED)
       if (commandName === "sus") {
+        if (!interaction.deferred && !interaction.replied) {
+          await interaction.deferReply().catch(() => {});
+        }
         const target = interaction.options.getUser("target");
         const susPercent = Math.floor(Math.random() * 101);
-        const crime = SUS_CRIMES[Math.floor(Math.random() * SUS_CRIMES.length)];
+        const crime = await fetchLiveSusCrime();
 
-        let verdict = "🟢 INNOCENT (for now)";
+        let verdict = "🟢INNOCENT CITIZEN";
         let kaomoji = "(✿◠‿◠)";
-        let color = 0x57f287;
+        let color = 0x00f5d4;
+        let threatBadge = "LOW THREAT";
 
         if (susPercent > 70) {
-          verdict = "🚨 CRITICALLY SUSPECT / IMPOSTOR DETECTED";
+          verdict = "🚨CRITICALLY SUSPECT / IMPOSTOR";
           kaomoji = "(╬ಠ益ಠ) ━╤デ╦︻";
-          color = 0xed4245;
+          color = 0xff0055;
+          threatBadge = "MAXIMUM DANGER";
         } else if (susPercent > 35) {
-          verdict = "🟡 SUSPICIOUS BEHAVIOR";
+          verdict = "🟡SUSPICIOUS ACTIVITY DETECTED";
           kaomoji = "(¬_¬ )";
           color = 0xfee75c;
+          threatBadge = "MODERATE SUSPICION";
         }
 
         const embed = new EmbedBuilder()
-          .setTitle(`📦 SUS DIAGNOSTIC SCAN: ${target.username}`)
           .setColor(color)
+          .setAuthor({
+            name: `CYBERNETIC DIAGNOSTIC SCANNER`,
+            iconURL: "https://i.imgur.com/rA8f57s.png",
+          })
+          .setTitle(`📦SCAN RESULTS: @${target.username.toUpperCase()}`)
           .setThumbnail(target.displayAvatarURL())
-          .addFields(
-            {
-              name: "Sus Meter",
-              value: `${renderHealthBar(susPercent, 100)} (${susPercent}%)`,
-            },
-            { name: "Verdict", value: `**${verdict}**\n${kaomoji}` },
-            { name: "Charge / Allegation", value: `*${crime}*` },
-          );
+          .setDescription(
+            `\`\`\`fix\n[THREAT LEVEL: ${threatBadge}] • [PROBABILITY: ${susPercent}%]\n\`\`\`\n` +
+              `> 📊 **SUS METER:**\n> ${renderHealthBar(susPercent, 100)}\n\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `### ⚖️ **VERDICT:**\n` +
+              `> **${verdict}**\n` +
+              `> \`\`\`\n${kaomoji}\n\`\`\`\n` +
+              `### 📂 **CHARGES / ALLEGATIONS:**\n` +
+              `> 📜 *${crime}*`,
+          )
+          .setFooter({
+            text: `Diagnostic run by @${interaction.user.username}`,
+            iconURL: interaction.user.displayAvatarURL(),
+          })
+          .setTimestamp();
 
-        return safeReply(interaction, { embeds: [embed] });
+        return interaction.editReply({ embeds: [embed] }).catch(() => {});
       }
 
       // 7. HOT POTATO BOMB DEFUSAL
@@ -861,31 +1067,37 @@ client.on("interactionCreate", async (interaction) => {
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setCustomId("defuse_red")
-            .setLabel("🔴 Cut Red Wire")
+            .setLabel("🔴Cut Red Wire")
             .setStyle(ButtonStyle.Danger),
           new ButtonBuilder()
             .setCustomId("defuse_blue")
-            .setLabel("🔵 Cut Blue Wire")
+            .setLabel("🔵Cut Blue Wire")
             .setStyle(ButtonStyle.Primary),
           new ButtonBuilder()
             .setCustomId("defuse_green")
-            .setLabel("🟢 Cut Green Wire")
+            .setLabel("🟢Cut Green Wire")
             .setStyle(ButtonStyle.Success),
         );
 
         const bombEmbed = new EmbedBuilder()
-          .setTitle("💣 TICK... TICK... BOMB ARMED!")
           .setColor(0xed4245)
+          .setAuthor({
+            name: "🚨 EMERGENCY DEFUSAL",
+            iconURL: "https://i.imgur.com/Qk1jQzM.png",
+          })
+          .setTitle("💣 TICK... TICK... DETONATION IMMINENT!")
           .setDescription(
-            `### ⏳ **15 SECONDS TO DETONATION!**\n` +
+            `\`\`\`fix\n[ ⏳ TIME REMAINING: 15.00 SECONDS ] • [ STATUS: ARMED ]\n\`\`\`\n` +
               `\`\`\`text\n` +
-              `    _____  \n` +
-              `  /  BOMB \\ \n` +
-              ` |  00:15  |=== [ 🔴 | 🔵 | 🟢 ]\n` +
-              `  \\_______/\n` +
+              `       .---.\n` +
+              `      /     \\\n` +
+              `     | () () |\n` +
+              `      \\  -  /   === [ 🔴 | 🔵 | 🟢 ]\n` +
+              `       \`---\`\n` +
               `\`\`\`\n` +
-              `*Choose a wire to cut before the whole server blows up! ᕦ(ò_óˇ)ᕤ*`,
-          );
+              `> ⚠️ *Choose the exact wire to cut before the whole server detonates!*`,
+          )
+          .setFooter({ text: "Operative: @" + interaction.user.username });
 
         const replyMsg = await interaction.reply({
           embeds: [bombEmbed],
@@ -915,24 +1127,24 @@ client.on("interactionCreate", async (interaction) => {
 
           if (reason === "defused") {
             const winEmbed = new EmbedBuilder()
+              .setColor(0x00f5d4)
               .setTitle("🎉 BOMB DEFUSED! SAFE!")
-              .setColor(0x57f287)
               .setDescription(
-                `### (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧ **MISSION ACCOMPLISHED!**\n` +
-                  `**${interaction.user.username}** successfully cut the safe wire (**${correctWire.toUpperCase()}**).\n\n` +
-                  `*The tournament hall is saved! ٩(◕‿◕｡)۶*`,
+                `\`\`\`fix\n[STATUS: CRISIS AVERTED] • [SUCCESS]\n\`\`\`\n` +
+                  `> 🛡️ **${interaction.user.username}** successfully snipped the **${correctWire.toUpperCase()}** wire!\n\n` +
+                  `### (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧ *The tournament venue is secure!*`,
               );
             await replyMsg
               .edit({ embeds: [winEmbed], components: [disabledRow] })
               .catch(() => {});
           } else {
             const failEmbed = new EmbedBuilder()
+              .setColor(0x2b2d31)
               .setTitle("💥 KABOOOOOM! DETONATION!")
-              .setColor(0x2f3136)
               .setDescription(
-                `### ☠️ ( 💀 ͜ʖ 💀 ) ☠️ **EVERYONE DIED!**\n` +
-                  `The correct wire was: **${correctWire.toUpperCase()}**.\n\n` +
-                  `*${reason === "time" ? "Timer ran out! (×_×)⌒☆" : "Wrong wire was cut! (ノಠ益ಠ)ノ彡┻━┻"}*`,
+                `\`\`\`fix\n[STATUS: TOTAL DISASTER] • [KABOOM]\n\`\`\`\n` +
+                  `> ☠️ The safe wire was: **${correctWire.toUpperCase()}**\n\n` +
+                  `### ☠️ ( 💀 ͜ʖ 💀 ) ☠️ *${reason === "time" ? "Timer reached zero! (×_×)" : "Wrong wire cut! (ノಠ益ಠ)ノ"}*`,
               );
             await replyMsg
               .edit({ embeds: [failEmbed], components: [disabledRow] })
@@ -942,7 +1154,7 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      // 8. MULTI-SCENARIO ASCII HEIST / ESCAPE
+      // 8. MULTI-SCENARIO ASCII HEIST
       if (commandName === "escape") {
         const SCENARIOS = [
           {
@@ -966,11 +1178,11 @@ client.on("interactionCreate", async (interaction) => {
                 winTitle: "🏆 SSS-RANK STEALTH INFILTRATION!",
                 winArt: "   💎 💰 👑\n   \\(^ヮ^)/ [LOOT SECURED!]",
                 winText:
-                  "You slipped through the narrow ventilation shaft, dodged the heat sensors, and snatched 500,000 Plato Coins! (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧",
+                  "You slipped through the ventilation shaft, bypassed heat sensors, and snatched 500,000 Plato Coins! (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧",
                 failTitle: "💀 VENT COLLAPSE!",
                 failArt: "   💥 ┌───┐ 💥\n      │(x_x)│ [STUCK!]",
                 failText:
-                  "The rusty vent gave way under your weight and you crashed straight onto the Chief Admin's desk! (╥﹏╥)",
+                  "The rusty vent gave way and you crashed directly onto the Chief Admin's desk! (╥﹏╥)",
               },
               {
                 id: "bribe",
@@ -980,11 +1192,11 @@ client.on("interactionCreate", async (interaction) => {
                 winTitle: "🏆 BRIBE ACCEPTED BY GUARD!",
                 winArt: "   👮‍♂️ 🤝 (¬‿¬)\n   [VIP PASS GRANTED]",
                 winText:
-                  "The guard gasped: *'A golden Draw-4?! Take whatever you want, boss!'* You walked right out the front door with the trophy! (★ω★)",
+                  "The guard gasped: *'A golden Draw-4?! Pass right through, boss!'* You walked out the front door with the trophy! (★ω★)",
                 failTitle: "💀 BRIBE REJECTED!",
                 failArt: "   👮‍♂️ ━╤デ╦︻ (╬ಠ益ಠ)\n   [CAUGHT IN 4K]",
                 failText:
-                  "The guard turned out to be an undercover tournament moderator. You were instantly banned to the shadow realm! 凸(￣ヘ￣)",
+                  "The guard was an undercover moderator. You were banned to the shadow realm on the spot! 凸(￣ヘ￣)",
               },
               {
                 id: "smash",
@@ -994,11 +1206,11 @@ client.on("interactionCreate", async (interaction) => {
                 winTitle: "🏆 UNSTOPPABLE CRITICAL SMASH!",
                 winArt: "   (ノ°Д°）ノ︵ 🏢\n   [VAULT SHATTERED!]",
                 winText:
-                  "Against all laws of physics, your pure rage obliterated the titanium door and blasted the vault wide open! ᕙ(▀̿̿Ĺ̯̿̿▀̿ ̿)ᕗ",
+                  "Against all laws of physics, your rage obliterated the titanium door and blasted the vault open! ᕙ(▀̿̿Ĺ̯̿̿▀̿ ̿)ᕗ",
                 failTitle: "💀 SPINE FRACTURE!",
                 failArt: "   💥 ┬─┬ノ( º _ ºノ)\n   [DOOR DIDN'T BUDGE]",
                 failText:
-                  "You threw yourself at a 50-ton blast door. You bounced off like a cartoon character and knocked yourself out cold. (×_×)⌒☆",
+                  "You threw yourself at a 50-ton blast door and bounced off like a cartoon character! (×_×)⌒☆",
               },
             ],
           },
@@ -1012,7 +1224,7 @@ client.on("interactionCreate", async (interaction) => {
               "       ▲\n" +
               "   (⊙_⊙) [YOU'RE CORNERED]",
             prompt:
-              "You just won all the chips at the VIP table and the house bouncers are blocking the exits! What's your escape plan?",
+              "You just cleared the high-roller table and the house bouncers are blocking the exits! What's your escape move?",
             choices: [
               {
                 id: "smoke",
@@ -1026,7 +1238,7 @@ client.on("interactionCreate", async (interaction) => {
                 failTitle: "💀 SMOKE BOMB WAS A DUD!",
                 failArt: "   (・・ ) ? 💥\n   [COUGHING FIT]",
                 failText:
-                  "You threw a smoke grenade, but it was just baby powder. The bouncers calmly escorted you to the kitchen dish pit. ＼（〇_ｏ）／",
+                  "Your smoke grenade was just baby powder. The bouncers calmly escorted you to the kitchen dish pit. ＼（〇_ｏ）／",
               },
               {
                 id: "bankshot",
@@ -1040,7 +1252,7 @@ client.on("interactionCreate", async (interaction) => {
                 failTitle: "💀 SCRATCHED THE CUE BALL!",
                 failArt: "   🎱 ━━▶ (×﹏×)\n   [OWN GOAL]",
                 failText:
-                  "The cue ball bounced directly back into your forehead. You woke up in the back alley with empty pockets. ಥ_ಥ",
+                  "The cue ball bounced directly into your forehead. You woke up in the back alley with empty pockets. ಥ_ಥ",
               },
               {
                 id: "roulette",
@@ -1050,67 +1262,11 @@ client.on("interactionCreate", async (interaction) => {
                 winTitle: "🏆 CASINO OVERLORD!",
                 winArt: "   🎰 [ 7 | 7 | 7 ] 🎰\n   (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧ [JACKPOT!]",
                 winText:
-                  "The ball landed on Double Zero! The whole casino erupted in cheers and the bouncers carried you out like a king! (★ω★)",
+                  "The ball landed on Double Zero! The whole casino cheered and the bouncers carried you out like royalty! (★ω★)",
                 failTitle: "💀 TOTAL BANKRUPTCY!",
                 failArt: "   (╯°□°)╯︵ ʞooqǝɔɐɟ\n   [ZERO BALANCE]",
                 failText:
-                  "You lost every single coin. The casino took your watch, your shoes, and your Plato account credentials! (ノಠ益ಠ)ノ彡┻━┻",
-              },
-            ],
-          },
-          {
-            title: "🏯 OCHO TOWER ROOFTOP GETAWAY",
-            color: 0x5865f2,
-            art:
-              "   [ SKYSCRAPER ROOFTOP ]\n" +
-              "   🚁 ☁️   ☁️   ☁️\n" +
-              "   ════════════════\n" +
-              "       ( •_•) [YOU ON EDGE]\n" +
-              "   [500 FT DROP BELOW]",
-            prompt:
-              "You are stuck on the 100th floor of Ocho Tower with security closing in on the helipad! How do you escape?",
-            choices: [
-              {
-                id: "zipline",
-                label: "🪢 Zipline Down Power Cables",
-                style: ButtonStyle.Primary,
-                winRate: 0.55,
-                winTitle: "🏆 CINEMATIC ZIPLINE DIVE!",
-                winArt: "   🪢 ~ ~ ~ 💨\n   ( •̀ᴗ•́ )و [PERFECT LANDING]",
-                winText:
-                  "You hooked your belt onto the cable, soared over the city skyline, and landed safely into the getaway truck! ٩(◕‿◕｡)۶",
-                failTitle: "💀 BELT SNAPPED!",
-                failArt: "   💥 (x_x) 💥\n   [DUMPSTER CRASH]",
-                failText:
-                  "Your belt snapped halfway down. You plummeted directly into a dumpster full of rotten cabbage. (இ﹏இ`｡)",
-              },
-              {
-                id: "heli",
-                label: "🚁 Hijack the Escape Chopper",
-                style: ButtonStyle.Danger,
-                winRate: 0.45,
-                winTitle: "🏆 SKY PIRATE VICTORY!",
-                winArt: "   🚁 💨 💨 💨\n   ( ▀ ͜ʖ ͡・) [WE ARE AIRBORNE]",
-                winText:
-                  "You dropkicked the pilot into the passenger seat, pulled the throttle, and flew into the sunset! ᕙ(▀̿̿Ĺ̯̿̿▀̿ ̿)ᕗ",
-                failTitle: "💀 DON'T KNOW HOW TO FLY!",
-                failArt: "   🚁 🔄 🔄 🔄\n   ＼（〇_ｏ）／ [SPINNING]",
-                failText:
-                  "You jumped into the cockpit, mashed random buttons, and deployed the windshield wipers while security surrounded you. ¯\\_(ツ)_/¯",
-              },
-              {
-                id: "cardshield",
-                label: "🛡️ Block with Reverse Card",
-                style: ButtonStyle.Success,
-                winRate: 0.5,
-                winTitle: "🏆 ULTIMATE REVERSE ACTIVATED!",
-                winArt: "   🔄 🎴 💫\n   (☞◣д◢)☞ [GUARDS ARREST THEMSELVES]",
-                winText:
-                  "You pulled an Uno Reverse card. The guards were forced by cosmic law to cuff themselves and hand you the keys! (¬‿¬)",
-                failTitle: "💀 REVERSE CARD COUNTERED!",
-                failArt: "   🎴 ⚔️ 🎴\n   (╬ಠ益ಠ) [DRAW-4 STACKED!]",
-                failText:
-                  "The captain pulled a Wild Draw-4 card. You were overwhelmed by the card stack and pinned down! 凸(￣ヘ￣)",
+                  "You lost every single coin. The casino took your watch, your shoes, and your Plato username! (ノಠ益ಠ)ノ彡┻━┻",
               },
             ],
           },
@@ -1133,9 +1289,11 @@ client.on("interactionCreate", async (interaction) => {
           .setColor(scenario.color)
           .setDescription(
             `\`\`\`text\n${scenario.art}\n\`\`\`\n` +
-              `### 🎯 **THE SITUATION:**\n${scenario.prompt}\n\n` +
+              `### 🎯 **THE SITUATION:**\n> ${scenario.prompt}\n\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
               `*Choose your action below before the timer runs out! ᕦ(ò_óˇ)ᕤ*`,
-          );
+          )
+          .setFooter({ text: "Interactive Heist Simulator" });
 
         const msg = await interaction.reply({
           embeds: [startEmbed],
@@ -1165,12 +1323,13 @@ client.on("interactionCreate", async (interaction) => {
 
           const resultEmbed = new EmbedBuilder()
             .setTitle(isSuccess ? choiceData.winTitle : choiceData.failTitle)
-            .setColor(isSuccess ? 0x57f287 : 0xed4245)
+            .setColor(isSuccess ? 0x00f5d4 : 0xff0055)
             .setDescription(
               `\`\`\`text\n${isSuccess ? choiceData.winArt : choiceData.failArt}\n\`\`\`\n` +
                 `### **${isSuccess ? "🎉 MISSION ACCOMPLISHED!" : "💀 MISSION FAILED!"}**\n` +
-                `${isSuccess ? choiceData.winText : choiceData.failText}\n\n` +
-                `> *Player: ${interaction.user} | Success Rate: ${Math.round(choiceData.winRate * 100)}%*`,
+                `> ${isSuccess ? choiceData.winText : choiceData.failText}\n\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `> 👤 **Player:** ${interaction.user} • **Odds:** \`${Math.round(choiceData.winRate * 100)}%\``,
             );
 
           return btnInt.update({ embeds: [resultEmbed], components: [] });
@@ -1180,10 +1339,10 @@ client.on("interactionCreate", async (interaction) => {
           if (reason === "time") {
             const timeoutEmbed = new EmbedBuilder()
               .setTitle("⏰ HEIST TIMED OUT!")
-              .setColor(0x2f3136)
+              .setColor(0x2b2d31)
               .setDescription(
                 `\`\`\`text\n   (x_x) 💤 ...\n\`\`\`\n` +
-                  `You hesitated for too long and were caught sleeping on the job! (¯\\_(ツ)_/¯)`,
+                  `> You hesitated for too long and were caught sleeping on the job! (¯\\_(ツ)_/¯)`,
               );
             await msg
               .edit({ embeds: [timeoutEmbed], components: [] })
@@ -1219,10 +1378,16 @@ client.on("interactionCreate", async (interaction) => {
           { upsert: true, returnDocument: "after" },
         );
 
-        return safeReply(interaction, {
-          content: `Tournament operations are now locked to <#${targetChannel.id}>.`,
-          flags: 64,
-        });
+        const embed = new EmbedBuilder()
+          .setColor(0x00f5d4)
+          .setTitle("⚙️ TOURNAMENT CONFIGURATION SAVED")
+          .setDescription(
+            `\`\`\`fix\n[CHANNEL LOCKED: #${targetChannel.name}]\n\`\`\`\n` +
+              `> All bracket generations and match management are now routed exclusively to <#${targetChannel.id}>.`,
+          )
+          .setFooter({ text: "Tournament System Settings" });
+
+        return safeReply(interaction, { embeds: [embed], flags: 64 });
       }
 
       // 10. LINK
@@ -1239,12 +1404,16 @@ client.on("interactionCreate", async (interaction) => {
           { upsert: true, returnDocument: "after" },
         );
 
-        return safeReply(interaction, {
-          content: `Linked! Plato ID: **${platoId}** | Fav Games: ${
-            favGames.length ? favGames.join(", ") : "None specified"
-          }`,
-          flags: 64,
-        });
+        const embed = new EmbedBuilder()
+          .setColor(0x00f5d4)
+          .setTitle("✅ PLATO ACCOUNT LINKED")
+          .setDescription(
+            `\`\`\`fix\n[ PLATO ID: ${platoId} ]\n\`\`\`\n` +
+              `> 🎮 **FAVORITE GAMES:** ${favGames.length ? favGames.map((g) => `\`${g}\``).join(", ") : "*None specified*"}\n\n` +
+              `*You are now eligible to enter official server tournaments!*`,
+          );
+
+        return safeReply(interaction, { embeds: [embed], flags: 64 });
       }
 
       // 11. PROFILE
@@ -1261,19 +1430,21 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         const embed = new EmbedBuilder()
-          .setTitle(`${targetUser.username}'s Plato Profile`)
-          .setColor(0x00ae86)
+          .setTitle(`🎮 PLAYER: @${targetUser.username.toUpperCase()}`)
+          .setColor(0x5865f2)
           .setThumbnail(targetUser.displayAvatarURL())
-          .addFields(
-            { name: "Plato ID", value: `\`${profile.platoId}\``, inline: true },
-            {
-              name: "Favorite Games",
-              value: profile.favGames.length
-                ? profile.favGames.join("\n")
-                : "None added",
-              inline: true,
-            },
-          );
+          .setDescription(
+            `\`\`\`fix\n[PLATO PASSPORT]\n\`\`\`\n` +
+              `> **PLATO ID:** \`${profile.platoId}\`\n` +
+              `> **REGISTERED:** <t:${Math.floor(new Date(profile.createdAt).getTime() / 1000)}:R>\n\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `### 🏆 GAMES:\n` +
+              `> ${profile.favGames.length ? profile.favGames.map((g) => `\`• ${g}\``).join("\n> ") : "*No favorite titles listed*"}`,
+          )
+          .setFooter({
+            text: "Plato Registry",
+            iconURL: "https://i.imgur.com/v8tTj8z.png",
+          });
 
         return safeReply(interaction, { embeds: [embed] });
       }
@@ -1356,15 +1527,23 @@ client.on("interactionCreate", async (interaction) => {
           );
 
           const embed = new EmbedBuilder()
-            .setTitle(`🏆 Tournament: ${name}`)
+            .setColor(0xfee75c)
+            .setAuthor({
+              name: "🏆 OFFICIAL TOURNAMENT REGISTRATION",
+              iconURL: "https://i.imgur.com/v8tTj8z.png",
+            })
+            .setTitle(name.toUpperCase())
             .setDescription(
-              `**Game:** ${game}\n**Format:** ${format}\n\nClick below to register. You must run \`/link\` before joining!`,
+              `\`\`\`fix\n[${game.toUpperCase()}] • [${format}] • [REGISTRATION OPEN]\n\`\`\`\n` +
+                `> 📌 Click the **Join** button below to enter.\n` +
+                `> ⚠️ *You must link your Plato account using \`/link\` prior to registering!*`,
             )
             .addFields({
-              name: "Participants (0)",
-              value: "No one has joined yet.",
+              name: "👥 REGISTERED CONTENDERS (0)",
+              value: "> *No players have registered yet. Be the first!*",
             })
-            .setColor(0xfee75c);
+            .setFooter({ text: "Tournament Coordinator System" })
+            .setTimestamp();
 
           return safeReply(interaction, {
             embeds: [embed],
@@ -1514,10 +1693,10 @@ client.on("interactionCreate", async (interaction) => {
 
         const embed = EmbedBuilder.from(interaction.message.embeds[0]);
         embed.spliceFields(0, 1, {
-          name: `Participants (${tourney.participants.length})`,
+          name: `👥 REGISTERED CONTENDERS (${tourney.participants.length})`,
           value: tourney.participants.length
             ? tourney.participants.map((id) => `<@${id}>`).join(", ")
-            : "No one has joined yet.",
+            : "> *No players have registered yet. Be the first!*",
         });
 
         await interaction.update({ embeds: [embed] }).catch(() => {});
@@ -1588,9 +1767,18 @@ client.on("interactionCreate", async (interaction) => {
               const winnerMentions = winners
                 .map((id) => `<@${id}>`)
                 .join(" & ");
-              return interaction.channel.send({
-                content: `🎉 **TOURNAMENT COMPLETE!**\n👑 Congratulations to the Champion(s): ${winnerMentions}!`,
-              });
+
+              const finishEmbed = new EmbedBuilder()
+                .setColor(0x00f5d4)
+                .setTitle("🎉 TOURNAMENT FINALE!")
+                .setDescription(
+                  `\`\`\`fix\n[🏆 CHAMPION OF THE TOURNAMENT]\n\`\`\`\n` +
+                    `### 👑 Congratulations to our Champion(s):\n> ${winnerMentions} (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧\n\n` +
+                    `*All bracket data has been logged to the server archives.*`,
+                )
+                .setThumbnail("https://i.imgur.com/v8tTj8z.png");
+
+              return interaction.channel.send({ embeds: [finishEmbed] });
             }
 
             tourney.currentRound += 1;
@@ -1627,7 +1815,7 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // ==========================================
-// 7. DATABASE CONNECTION, LOGIN & HTTP SERVER
+// 8. DATABASE CONNECTION, LOGIN & HTTP SERVER
 // ==========================================
 mongoose
   .connect(process.env.MONGO_URI)
