@@ -1,7 +1,6 @@
-const { EmbedBuilder } = require("discord.js");
 const Warning = require("../models/Warning");
 
-// 1. Common Leet-speak character mappings
+// 1. Leetspeak mapping
 const LEET_MAP = {
   0: "o",
   1: "i",
@@ -16,10 +15,10 @@ const LEET_MAP = {
   "+": "t",
   8: "b",
   9: "g",
-  v: "u", // e.g. "fvck"
+  v: "u",
 };
 
-// 2. Exact acronyms / common shortcuts (checked after whitespace removal)
+// 2. Acronyms & Shortcuts
 const BANNED_ACRONYMS = new Set([
   "stfu",
   "wtf",
@@ -35,10 +34,9 @@ const BANNED_ACRONYMS = new Set([
   "mf",
 ]);
 
-// 3. Flexible regex covering abbreviations, phonetic variations, and Hinglish
+// 3. Flexible phonetic & Hinglish profanity pattern regex
 const FLEXIBLE_PROFANITY_REGEX = new RegExp(
   [
-    // English variants
     "f+u*c*k+",
     "f+u+q+",
     "f+c+k+",
@@ -49,11 +47,8 @@ const FLEXIBLE_PROFANITY_REGEX = new RegExp(
     "c+u+n+t+",
     "d+[i!|1]+c*k+",
     "b+a+s+t+a*r*d+",
-    "n+[i!|1]+g+g+[a|e*r*]+",
     "p+u+s+s+y+",
     "w+h+o+r+e+",
-
-    // Hinglish variants
     "m+[a*4*@*]*d+a*r*c*h+[o*0*]+d+",
     "b+h*e*n*c*h+[o*0*]+d+",
     "b+h*e*h*n*c*h+[o*0*]+d+",
@@ -73,44 +68,139 @@ const FLEXIBLE_PROFANITY_REGEX = new RegExp(
   "i",
 );
 
-/**
- * Normalizes text by removing non-alphanumeric noise,
- * converting leetspeak, and collapsing repeated characters.
- */
+// 4. Common Hinglish grammar and conversation markers
+const HINGLISH_DICTIONARY = new Set([
+  "kya",
+  "kyu",
+  "kyun",
+  "kaise",
+  "kaisa",
+  "kaisi",
+  "kab",
+  "kaha",
+  "kahan",
+  "kidhar",
+  "bhai",
+  "bro",
+  "yaar",
+  "yr",
+  "bhaiya",
+  "dost",
+  "apna",
+  "apni",
+  "mera",
+  "meri",
+  "tere",
+  "tera",
+  "teri",
+  "tumhara",
+  "tumhari",
+  "humara",
+  "uska",
+  "uski",
+  "unka",
+  "inka",
+  "hai",
+  "h",
+  "hain",
+  "ho",
+  "tha",
+  "thi",
+  "the",
+  "hoga",
+  "hogi",
+  "honge",
+  "nahi",
+  "nhi",
+  "na",
+  "mat",
+  "karo",
+  "kare",
+  "karna",
+  "krna",
+  "raha",
+  "rahe",
+  "rahi",
+  "gaya",
+  "gayi",
+  "gaye",
+  "aaya",
+  "aayi",
+  "aaye",
+  "aao",
+  "jao",
+  "chal",
+  "chalo",
+  "bolo",
+  "bol",
+  "batao",
+  "dekh",
+  "dekho",
+  "suno",
+  "samjho",
+  "samjha",
+  "pata",
+  "accha",
+  "acha",
+  "theek",
+  "thik",
+  "badiya",
+  "sahi",
+  "galat",
+  "kuch",
+  "bahut",
+  "bohot",
+  "zyada",
+  "jyada",
+  "kam",
+  "ab",
+  "abhi",
+  "baad",
+  "pehle",
+  "andar",
+  "bahar",
+  "upar",
+  "niche",
+  "lekin",
+  "magar",
+  "aur",
+  "ya",
+  "par",
+  "pe",
+  "se",
+  "ko",
+  "ne",
+  "mein",
+  "me",
+]);
+
+// Checks for non-Latin alphabets (Devanagari, Arabic, Cyrillic, Chinese, etc.)
+const NON_LATIN_SCRIPT_REGEX =
+  /[\u0900-\u097F\u0600-\u06FF\u0400-\u04FF\u4E00-\u9FFF]/;
+
 function normalizeText(text) {
   let lower = text.toLowerCase();
-
-  // Replace leet characters with alphabet equivalents
   let decoded = "";
   for (const char of lower) {
     decoded += LEET_MAP[char] || char;
   }
-
-  // Strip punctuation, symbols, and zero-width spaces (e.g. "f.u.c.k" -> "fuck")
   const stripped = decoded.replace(/[^a-z0-9\s]/g, "");
-
-  // Collapse repeated characters: "fuuuuck" -> "fuck"
   const collapsed = stripped.replace(/(.)\1{2,}/g, "$1");
-
   return { stripped, collapsed };
 }
 
 function containsAbuse(rawContent) {
+  if (!rawContent) return false;
   const { stripped, collapsed } = normalizeText(rawContent);
 
-  // Check 1: Collapsed text against regex patterns
   if (FLEXIBLE_PROFANITY_REGEX.test(collapsed)) return true;
-
-  // Check 2: Stripped text against regex patterns (for short words)
   if (FLEXIBLE_PROFANITY_REGEX.test(stripped)) return true;
 
-  // Check 3: Word-by-word acronym & slang matching
   const words = stripped.split(/\s+/);
   for (const word of words) {
     if (BANNED_ACRONYMS.has(word)) return true;
   }
 
-  // Check 4: No-space bypass attempt (e.g., "b_s_d_k" -> "bsdk")
   const noSpaces = stripped.replace(/\s+/g, "");
   for (const acronym of BANNED_ACRONYMS) {
     if (noSpaces.includes(acronym)) return true;
@@ -119,40 +209,78 @@ function containsAbuse(rawContent) {
   return false;
 }
 
-async function checkAndModerateProfanity(message) {
-  if (!containsAbuse(message.content)) return false;
+/**
+ * Detects if a message is primarily non-English or dense Hinglish.
+ * Skips short casual words so people aren't warned for just saying "haan" or "acha".
+ */
+function isExcessiveNonEnglish(rawContent) {
+  if (!rawContent) return false;
 
-  try {
-    await message.delete().catch(() => {});
-
-    const warnDoc = await Warning.findOneAndUpdate(
-      { guildId: message.guild.id, userId: message.author.id },
-      { $inc: { count: 1 }, $set: { lastWarning: new Date() } },
-      { upsert: true, returnDocument: "after" },
-    );
-
-    const warnEmbed = new EmbedBuilder()
-      .setColor(0xff0055)
-      .setAuthor({
-        name: "AUTOMATED CHAT POLICING",
-        iconURL: message.guild.iconURL() || undefined,
-      })
-      .setDescription(
-        `⚠️ ${message.author}, abusive/explicit language (including abbreviations & bypasses) is strictly prohibited.\n` +
-          `Keep the server environment calm, civil, and curse-free.\n\n` +
-          `\`\`\`fix\n[ STRIKE RECORD: ${warnDoc.count} WARNING(S) ]\n\`\`\``,
-      )
-      .setFooter({ text: "Message auto-deleted • Cleans in 7s" })
-      .setTimestamp();
-
-    const warnMsg = await message.channel.send({ embeds: [warnEmbed] });
-    setTimeout(() => warnMsg.delete().catch(() => {}), 7000);
-
+  // 1. Direct Non-Latin Script check (e.g., Hindi script 'क्या कर रहे हो')
+  if (NON_LATIN_SCRIPT_REGEX.test(rawContent)) {
     return true;
-  } catch (err) {
-    console.error("AutoMod Service Error:", err);
-    return false;
   }
+
+  // 2. Clean words for Latin-based Hinglish check
+  const words = rawContent
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, "")
+    .split(/\s+/)
+    .filter((w) => w.length > 1);
+
+  // Ignore short 1-3 word statements (allows simple expressions like "ok bhai")
+  if (words.length < 4) return false;
+
+  let hinglishCount = 0;
+  for (const word of words) {
+    if (HINGLISH_DICTIONARY.has(word)) {
+      hinglishCount++;
+    }
+  }
+
+  // If 35% or more of the sentence is Hinglish, flag it
+  const density = hinglishCount / words.length;
+  return density >= 0.35;
+}
+
+async function checkAndModerateProfanity(message) {
+  // --- Check 1: Explicit Language / Profanity ---
+  if (containsAbuse(message.content)) {
+    try {
+      await message.delete().catch(() => {});
+
+      const warnDoc = await Warning.findOneAndUpdate(
+        { guildId: message.guild.id, userId: message.author.id },
+        { $inc: { count: 1 }, $set: { lastWarning: new Date() } },
+        { upsert: true, returnDocument: "after" },
+      );
+
+      await message.channel.send({
+        content: `⚠️ ${message.author}, watch your language. Keep it civil and curse-free! \`[Warning #${warnDoc.count}]\``,
+      });
+
+      return true;
+    } catch (err) {
+      console.error("AutoMod Profanity Error:", err);
+      return false;
+    }
+  }
+
+  // --- Check 2: Language Policy (English Preferred) ---
+  if (isExcessiveNonEnglish(message.content)) {
+    try {
+      // Don't count as a strike or delete, just send a polite natural chat reminder
+      await message.channel.send({
+        content: `🌐 ${message.author}, please keep the conversation in **English** so everyone in the server can understand and participate!`,
+      });
+      return false; // Return false so the message can still be logged to chat history
+    } catch (err) {
+      console.error("AutoMod Language Error:", err);
+      return false;
+    }
+  }
+
+  return false;
 }
 
 module.exports = {
