@@ -8,6 +8,10 @@ const {
 const path = require("path");
 const mongoose = require("mongoose");
 const http = require("http");
+const {
+  handleGameInteractions,
+  activeGameChannels,
+} = require("./handlers/gameHandlers");
 
 // Models
 const ChatLog = require("./models/ChatLog");
@@ -74,8 +78,32 @@ client.once("clientReady", () => {
   console.log(`[ATX AI] Bot online as ${client.user.tag}`);
 });
 
+client.on("interactionCreate", async (interaction) => {
+  if (interaction.isChatInputCommand()) {
+    try {
+      await handleGameInteractions(interaction);
+    } catch (err) {
+      console.error("Game Execution Error:", err);
+      if (interaction.deferred || interaction.replied) {
+        await interaction.followUp({
+          content: "Encountered an internal error while running this game.",
+          ephemeral: true,
+        });
+      } else {
+        await interaction.reply({
+          content: "Encountered an internal error while running this game.",
+          ephemeral: true,
+        });
+      }
+    }
+  }
+});
+
 client.on("messageCreate", async (message) => {
   if (message.author.bot || !message.guild) return;
+
+  // SILENCE AI CHAT IF A GAME IS CURRENTLY IN PROGRESS IN THIS CHANNEL
+  if (activeGameChannels.has(message.channel.id)) return;
 
   // Check channel permissions
   const permissions = message.channel.permissionsFor(client.user);
