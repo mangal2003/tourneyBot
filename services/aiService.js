@@ -117,7 +117,7 @@ FORMATTING REQUIREMENTS:
 ### 📡 The Narrative
 (Write 2-3 engaging, crisp sentences capturing the vibe, hot topics, banter, or issues.)
 
-### ⚔️ Highlights
+### ⚔️ Highlights & Friction
 (Provide 2-3 bullet points: key jokes, game talk, arguments, or questions.)
 
 ### 👑 Main Characters
@@ -132,8 +132,8 @@ ${transcript}
   return await executeGenAI(prompt);
 }
 
-// Answers questions in natural plain text with dynamic application emoji substitution
-async function answerContextualQuery(client, message, query) {
+// Answers questions in natural plain text using message.client directly
+async function answerContextualQuery(message, query) {
   const recentLogs = await ChatLog.find({ channelId: message.channel.id })
     .sort({ createdAt: -1 })
     .limit(30);
@@ -143,8 +143,10 @@ async function answerContextualQuery(client, message, query) {
     .map((l) => `[${l.authorTag}]: ${l.content}`)
     .join("\n");
 
-  // Load custom portal emojis
-  const { listPrompt, emojiMap } = await getApplicationEmojiContext(client);
+  // Uses message.client directly to eliminate argument mismatch
+  const { listPrompt, emojiMap } = await getApplicationEmojiContext(
+    message.client,
+  );
 
   const prompt = `
 You are ATX AI, a helpful, sharp, and authentic Discord assistant for this server.
@@ -175,7 +177,7 @@ ${query}
   let responseText = await executeGenAI(prompt);
   if (responseText === "CAPACITY_EXHAUSTED") return "CAPACITY_EXHAUSTED";
 
-  // Post-process: Convert :emoji_name: strings to valid Discord <:emoji_name:id> tags
+  // Convert :emoji_name: text into valid Discord <:emoji_name:id> tags
   for (const [name, tag] of emojiMap.entries()) {
     const pattern = new RegExp(`(?<!<a?):${name}:(?!\\d+>)`, "gi");
     responseText = responseText.replace(pattern, tag);
