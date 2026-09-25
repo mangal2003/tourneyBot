@@ -3,7 +3,7 @@ const ChatLog = require("../models/ChatLog");
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-// Active, supported model endpoints
+// Active endpoints supported by the modern SDK
 const MODEL_CANDIDATES = [
   "gemini-3.5-flash-lite",
   "gemini-2.5-flash",
@@ -11,6 +11,41 @@ const MODEL_CANDIDATES = [
 ];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Fetches Application Emojis uploaded to Discord Developer Portal
+async function getApplicationEmojiContext(client) {
+  try {
+    if (!client || !client.application)
+      return { listPrompt: "", emojiMap: new Map() };
+
+    const appEmojis = await client.application.emojis.fetch();
+    if (!appEmojis || appEmojis.size === 0)
+      return { listPrompt: "", emojiMap: new Map() };
+
+    const emojiMap = new Map();
+    const promptLines = [];
+
+    appEmojis.forEach((emoji) => {
+      const tag = emoji.animated
+        ? `<a:${emoji.name}:${emoji.id}>`
+        : `<:${emoji.name}:${emoji.id}>`;
+
+      emojiMap.set(emoji.name.toLowerCase(), tag);
+      promptLines.push(`- :${emoji.name}: -> ${tag}`);
+    });
+
+    const listPrompt = `
+CUSTOM APPLICATION EMOJIS AVAILABLE:
+You can naturally use the following custom server emojis when contextually fitting:
+${promptLines.join("\n")}
+`;
+
+    return { listPrompt, emojiMap };
+  } catch (err) {
+    console.error("[AI Service] Failed to fetch application emojis:", err);
+    return { listPrompt: "", emojiMap: new Map() };
+  }
+}
 
 async function executeGenAI(prompt) {
   let lastError = null;
@@ -28,9 +63,10 @@ async function executeGenAI(prompt) {
     } catch (err) {
       lastError = err;
 
+      // 429 = Rate limit / quota exhausted, 503 = Temporary high demand
       if (err.status === 429 || err.status === 503) {
         console.warn(
-          `[AI Service] ${model} throttled (Status: ${err.status}). Trying next candidate...`,
+          `[AI Service] ${model} throttled (${err.status}). Trying next candidate...`,
         );
         await sleep(600);
         continue;
@@ -44,10 +80,10 @@ async function executeGenAI(prompt) {
   }
 
   console.error("[AI Service] All AI model candidates exhausted:", lastError);
-  return "All AI models are temporarily throttled or at capacity. Please give it a minute and try again!";
+  return "CAPACITY_EXHAUSTED";
 }
 
-// Generates an atmospheric, stylized channel debrief (STRICTLY IN ENGLISH)
+// Generates an atmospheric, stylized channel debrief strictly in English
 async function generateChatSummary(channel, hours = 3) {
   const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
 
@@ -81,10 +117,10 @@ FORMATTING REQUIREMENTS:
 ### 📡 The Narrative
 (Write 2-3 engaging, crisp sentences capturing the vibe, hot topics, banter, or issues.)
 
-### ⚔️ Highlights & Friction
+### ⚔️ Highlights
 (Provide 2-3 bullet points: key jokes, game talk, arguments, or questions.)
 
-### 👑 Key Participants
+### 👑 Main Characters
 (Mention who dominated the chat and what they were up to, using bold usernames.)
 
 Tone: Sharp, observant, slightly witty, but accurate.
@@ -96,8 +132,8 @@ ${transcript}
   return await executeGenAI(prompt);
 }
 
-// Answers questions in plain text using channel logs for situational context (STRICTLY IN ENGLISH)
-async function answerContextualQuery(message, query) {
+// Answers questions in natural plain text with dynamic application emoji substitution
+async function answerContextualQuery(client, message, query) {
   const recentLogs = await ChatLog.find({ channelId: message.channel.id })
     .sort({ createdAt: -1 })
     .limit(30);
@@ -106,6 +142,9 @@ async function answerContextualQuery(message, query) {
     .reverse()
     .map((l) => `[${l.authorTag}]: ${l.content}`)
     .join("\n");
+
+  // Load custom portal emojis
+  const { listPrompt, emojiMap } = await getApplicationEmojiContext(client);
 
   const prompt = `
 You are ATX AI, a helpful, sharp, and authentic Discord assistant for this server.
@@ -123,6 +162,8 @@ CRITICAL FORMATTING INSTRUCTIONS:
 - DO NOT wrap your entire response in quote blocks ('>') or decorative ASCII frames.
 - DO NOT add robotic prefixes like "Answer:", "AI Output:", or sign off with signatures.
 - NEVER ping @everyone or @here.
+${listPrompt}
+- If you use any custom emojis listed above, write them naturally as :emoji_name: or use standard emojis where appropriate. Do not overuse them.
 
 Recent Channel Activity:
 ${contextChat || "No recent channel logs recorded."}
@@ -131,7 +172,16 @@ User Question (@${message.author.username}):
 ${query}
 `;
 
-  return await executeGenAI(prompt);
+  let responseText = await executeGenAI(prompt);
+  if (responseText === "CAPACITY_EXHAUSTED") return "CAPACITY_EXHAUSTED";
+
+  // Post-process: Convert :emoji_name: strings to valid Discord <:emoji_name:id> tags
+  for (const [name, tag] of emojiMap.entries()) {
+    const pattern = new RegExp(`(?<!<a?):${name}:(?!\\d+>)`, "gi");
+    responseText = responseText.replace(pattern, tag);
+  }
+
+  return responseText;
 }
 
 module.exports = {

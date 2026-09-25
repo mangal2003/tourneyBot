@@ -1,6 +1,5 @@
 const Warning = require("../models/Warning");
 
-// 1. Leetspeak mapping
 const LEET_MAP = {
   0: "o",
   1: "i",
@@ -18,11 +17,8 @@ const LEET_MAP = {
   v: "u",
 };
 
-// 2. Acronyms & Shortcuts
 const BANNED_ACRONYMS = new Set([
   "stfu",
-  "wtf",
-  "wth",
   "bc",
   "mc",
   "bkl",
@@ -34,7 +30,6 @@ const BANNED_ACRONYMS = new Set([
   "mf",
 ]);
 
-// 3. Flexible phonetic & Hinglish profanity pattern regex
 const FLEXIBLE_PROFANITY_REGEX = new RegExp(
   [
     "f+u*c*k+",
@@ -68,22 +63,16 @@ const FLEXIBLE_PROFANITY_REGEX = new RegExp(
   "i",
 );
 
-// 4. Common Hinglish grammar and conversation markers
 const HINGLISH_DICTIONARY = new Set([
-  "kya",
-  "kyu",
   "kyun",
   "kaise",
   "kaisa",
   "kaisi",
-  "kab",
   "kaha",
   "kahan",
   "kidhar",
   "bhai",
-  "bro",
   "yaar",
-  "yr",
   "bhaiya",
   "dost",
   "apna",
@@ -100,20 +89,11 @@ const HINGLISH_DICTIONARY = new Set([
   "uski",
   "unka",
   "inka",
-  "hai",
-  "h",
   "hain",
-  "ho",
-  "tha",
-  "thi",
-  "the",
   "hoga",
   "hogi",
   "honge",
   "nahi",
-  "nhi",
-  "na",
-  "mat",
   "karo",
   "kare",
   "karna",
@@ -127,12 +107,9 @@ const HINGLISH_DICTIONARY = new Set([
   "aaya",
   "aayi",
   "aaye",
-  "aao",
-  "jao",
   "chal",
   "chalo",
   "bolo",
-  "bol",
   "batao",
   "dekh",
   "dekho",
@@ -152,8 +129,6 @@ const HINGLISH_DICTIONARY = new Set([
   "bohot",
   "zyada",
   "jyada",
-  "kam",
-  "ab",
   "abhi",
   "baad",
   "pehle",
@@ -163,18 +138,9 @@ const HINGLISH_DICTIONARY = new Set([
   "niche",
   "lekin",
   "magar",
-  "aur",
-  "ya",
-  "par",
-  "pe",
-  "se",
-  "ko",
-  "ne",
   "mein",
-  "me",
 ]);
 
-// Checks for non-Latin alphabets (Devanagari, Arabic, Cyrillic, Chinese, etc.)
 const NON_LATIN_SCRIPT_REGEX =
   /[\u0900-\u097F\u0600-\u06FF\u0400-\u04FF\u4E00-\u9FFF]/;
 
@@ -209,26 +175,19 @@ function containsAbuse(rawContent) {
   return false;
 }
 
-/**
- * Detects if a message is primarily non-English or dense Hinglish.
- * Skips short casual words so people aren't warned for just saying "haan" or "acha".
- */
 function isExcessiveNonEnglish(rawContent) {
   if (!rawContent) return false;
 
-  // 1. Direct Non-Latin Script check (e.g., Hindi script 'क्या कर रहे हो')
   if (NON_LATIN_SCRIPT_REGEX.test(rawContent)) {
     return true;
   }
 
-  // 2. Clean words for Latin-based Hinglish check
   const words = rawContent
     .toLowerCase()
     .replace(/[^a-z\s]/g, "")
     .split(/\s+/)
     .filter((w) => w.length > 1);
 
-  // Ignore short 1-3 word statements (allows simple expressions like "ok bhai")
   if (words.length < 4) return false;
 
   let hinglishCount = 0;
@@ -238,17 +197,14 @@ function isExcessiveNonEnglish(rawContent) {
     }
   }
 
-  // If 35% or more of the sentence is Hinglish, flag it
   const density = hinglishCount / words.length;
   return density >= 0.35;
 }
 
 async function checkAndModerateProfanity(message) {
-  // --- Check 1: Explicit Language / Profanity ---
+  // Check 1: Explicit Abuse / Profanity Warning (Text kept in chat)
   if (containsAbuse(message.content)) {
     try {
-      await message.delete().catch(() => {});
-
       const warnDoc = await Warning.findOneAndUpdate(
         { guildId: message.guild.id, userId: message.author.id },
         { $inc: { count: 1 }, $set: { lastWarning: new Date() } },
@@ -256,24 +212,23 @@ async function checkAndModerateProfanity(message) {
       );
 
       await message.channel.send({
-        content: `⚠️ ${message.author}, watch your language. Keep it civil and curse-free! \`[Warning #${warnDoc.count}]\``,
+        content: `⚠️ ${message.author}, watch your language. Keep it civil and curse-free! \`[Strike #${warnDoc.count}]\``,
       });
 
-      return true;
+      return false; // Return false so text is logged to rolling memory
     } catch (err) {
       console.error("AutoMod Profanity Error:", err);
       return false;
     }
   }
 
-  // --- Check 2: Language Policy (English Preferred) ---
+  // Check 2: Language Preference (English reminder)
   if (isExcessiveNonEnglish(message.content)) {
     try {
-      // Don't count as a strike or delete, just send a polite natural chat reminder
       await message.channel.send({
         content: `🌐 ${message.author}, please keep the conversation in **English** so everyone in the server can understand and participate!`,
       });
-      return false; // Return false so the message can still be logged to chat history
+      return false;
     } catch (err) {
       console.error("AutoMod Language Error:", err);
       return false;
