@@ -19,8 +19,6 @@ const LEET_MAP = {
 
 const BANNED_ACRONYMS = new Set([
   "stfu",
-  "bc",
-  "mc",
   "bkl",
   "mkc",
   "bsdk",
@@ -212,7 +210,7 @@ async function checkAndModerateProfanity(message) {
       );
 
       await message.channel.send({
-        content: `⚠️ ${message.author}, watch your language. Keep it civil and curse-free! \`[Strike #${warnDoc.count}]\``,
+        content: `⚠️ ${message.author}, watch your language. Keep it civil and curse-free! \`[Warning #${warnDoc.count}]\``,
       });
 
       return false; // Return false so text is logged to rolling memory

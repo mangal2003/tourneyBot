@@ -1,7 +1,20 @@
 require("dotenv").config();
-const { REST, Routes, SlashCommandBuilder } = require("discord.js");
+const {
+  ContextMenuCommandBuilder,
+  ApplicationCommandType,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+} = require("discord.js");
 
 const commands = [
+  // Context Menu Message Command (Apps -> React With Emojis)
+  new ContextMenuCommandBuilder()
+    .setName("React With Emojis")
+    .setType(ApplicationCommandType.Message)
+    .setContexts([0, 1, 2]) // Guild, BotDM, PrivateChannel
+    .setIntegrationTypes([0, 1]), // GuildInstall, UserInstall
+
   // 1. Spyfall
   new SlashCommandBuilder()
     .setName("spyfall")
@@ -52,11 +65,13 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log("[Slash Commands] Deploying all 5 game commands...");
+    console.log("[Commands] Deploying slash and context menu commands...");
     await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), {
       body: commands,
     });
-    console.log("[Slash Commands] All 5 commands deployed successfully.");
+    console.log(
+      "[Commands] Successfully deployed all 6 commands (5 slash + 1 context menu).",
+    );
   } catch (error) {
     console.error("Deploy Error:", error);
   }

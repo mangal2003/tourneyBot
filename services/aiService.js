@@ -84,7 +84,7 @@ async function executeGenAI(prompt) {
 }
 
 // Generates an atmospheric, stylized channel debrief strictly in English
-async function generateChatSummary(channel, hours = 3) {
+async function generateChatSummary(channel, hours = 6) {
   const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
 
   const logs = await ChatLog.find({
@@ -103,7 +103,7 @@ async function generateChatSummary(channel, hours = 3) {
     .join("\n");
 
   const prompt = `
-You are ATX AI, summarizing the chat for a gaming server debrief.
+You are MARSIAN AI, summarizing the chat for a gaming server debrief.
 Summarize the conversation from the past ${hours} hours.
 
 LANGUAGE ENFORCEMENT:
@@ -117,7 +117,7 @@ FORMATTING REQUIREMENTS:
 ### 📡 The Narrative
 (Write 2-3 engaging, crisp sentences capturing the vibe, hot topics, banter, or issues.)
 
-### ⚔️ Highlights & Friction
+### ⚔️ Highlights
 (Provide 2-3 bullet points: key jokes, game talk, arguments, or questions.)
 
 ### 👑 Main Characters
@@ -149,7 +149,7 @@ async function answerContextualQuery(message, query) {
   );
 
   const prompt = `
-You are ATX AI, a helpful, sharp, and authentic Discord assistant for this server.
+You are MARSIAN AI, a helpful, sharp, and authentic Discord assistant for this server.
 Use the recent channel activity below to understand current discussions or inside context if relevant.
 You can answer general questions, technical coding queries, or casually banter.
 
