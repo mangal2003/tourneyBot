@@ -3,7 +3,6 @@ const ChatLog = require("../models/ChatLog");
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-// Active endpoints supported by the modern SDK
 const MODEL_CANDIDATES = [
   "gemini-3.5-flash-lite",
   "gemini-2.5-flash",
@@ -15,12 +14,14 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Fetches Application Emojis uploaded to Discord Developer Portal
 async function getApplicationEmojiContext(client) {
   try {
-    if (!client || !client.application)
+    if (!client || !client.application) {
       return { listPrompt: "", emojiMap: new Map() };
+    }
 
     const appEmojis = await client.application.emojis.fetch();
-    if (!appEmojis || appEmojis.size === 0)
+    if (!appEmojis || appEmojis.size === 0) {
       return { listPrompt: "", emojiMap: new Map() };
+    }
 
     const emojiMap = new Map();
     const promptLines = [];
@@ -62,8 +63,6 @@ async function executeGenAI(prompt) {
       }
     } catch (err) {
       lastError = err;
-
-      // 429 = Rate limit / quota exhausted, 503 = Temporary high demand
       if (err.status === 429 || err.status === 503) {
         console.warn(
           `[AI Service] ${model} throttled (${err.status}). Trying next candidate...`,
@@ -83,7 +82,42 @@ async function executeGenAI(prompt) {
   return "CAPACITY_EXHAUSTED";
 }
 
-// Generates an atmospheric, stylized channel debrief strictly in English
+/**
+ * Universal Multilingual Auto-Mod Inspection:
+ * Uses fast AI inference to determine profanity, toxicity, or swearing in ANY language
+ * (e.g. Spanish "puta", Arabic "اللعنة", Hindi "bkl/mc", etc.)
+ */
+async function evaluateContentModeration(rawText) {
+  const prompt = `
+You are a strict, multilingual content safety evaluator for a Discord community.
+Analyze the following text message for:
+1. "isProfane": true if the text contains vulgarity, curses, insults, slurs, obscene body references, or profanity in ANY language (e.g. English, Spanish, Arabic, Hindi, Hinglish, Russian, French, etc.). Else false.
+2. "isNonEnglish": true if the text contains non-English words, phrases, or scripts (e.g. Arabic, Hindi, Spanish, Cyrillic, etc.). Else false.
+3. "detectedLanguage": the language or "English".
+
+Return ONLY raw JSON with no Markdown backticks, matching this exact shape:
+{"isProfane": boolean, "isNonEnglish": boolean, "detectedLanguage": "string"}
+
+Message to analyze:
+"${rawText.replace(/"/g, '\\"')}"
+`;
+
+  try {
+    const rawResult = await executeGenAI(prompt);
+    if (!rawResult || rawResult === "CAPACITY_EXHAUSTED") return null;
+
+    const cleaned = rawResult
+      .replace(/```json/gi, "")
+      .replace(/```/g, "")
+      .trim();
+    return JSON.parse(cleaned);
+  } catch (err) {
+    console.error("[AI Moderation Evaluator Error]:", err);
+    return null;
+  }
+}
+
+// Generates an atmospheric channel debrief strictly in English
 async function generateChatSummary(channel, hours = 6) {
   const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
 
@@ -132,7 +166,7 @@ ${transcript}
   return await executeGenAI(prompt);
 }
 
-// Answers questions in natural plain text using message.client directly
+// Answers questions in natural plain text
 async function answerContextualQuery(message, query) {
   const recentLogs = await ChatLog.find({ channelId: message.channel.id })
     .sort({ createdAt: -1 })
@@ -143,7 +177,6 @@ async function answerContextualQuery(message, query) {
     .map((l) => `[${l.authorTag}]: ${l.content}`)
     .join("\n");
 
-  // Uses message.client directly to eliminate argument mismatch
   const { listPrompt, emojiMap } = await getApplicationEmojiContext(
     message.client,
   );
@@ -177,7 +210,6 @@ ${query}
   let responseText = await executeGenAI(prompt);
   if (responseText === "CAPACITY_EXHAUSTED") return "CAPACITY_EXHAUSTED";
 
-  // Convert :emoji_name: text into valid Discord <:emoji_name:id> tags
   for (const [name, tag] of emojiMap.entries()) {
     const pattern = new RegExp(`(?<!<a?):${name}:(?!\\d+>)`, "gi");
     responseText = responseText.replace(pattern, tag);
@@ -187,6 +219,7 @@ ${query}
 }
 
 module.exports = {
+  evaluateContentModeration,
   generateChatSummary,
   answerContextualQuery,
 };

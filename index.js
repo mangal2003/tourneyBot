@@ -277,7 +277,6 @@ async function sendContextImpersonatedEmojis(
       });
     }
 
-    // Execute via REST API with message_reference to force Discord's native grey reply connector line
     const requestBody = {
       content: emojiOutput,
       username: displayName,
@@ -336,7 +335,6 @@ client.on("interactionCreate", async (interaction) => {
           .setRequired(true);
 
         modal.addComponents(new ActionRowBuilder().addComponents(input));
-
         return await interaction.showModal(modal);
       } catch (err) {
         if (err.code !== 40060 && err.code !== 10062) {
@@ -353,8 +351,6 @@ client.on("interactionCreate", async (interaction) => {
       const isGuild = !!interaction.guild;
 
       try {
-        // In Guilds: defer ephemerally so the webhook can post separately.
-        // In DMs/Group DMs: defer without ephemeral so editReply delivers the emojis.
         if (isGuild) {
           await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         } else {
@@ -382,7 +378,6 @@ client.on("interactionCreate", async (interaction) => {
       );
 
       if (isGuild) {
-        // Guild: send via impersonated webhook with native curved connector line
         await sendContextImpersonatedEmojis(
           interaction,
           targetMessage,
@@ -390,7 +385,6 @@ client.on("interactionCreate", async (interaction) => {
         );
         return await interaction.deleteReply().catch(() => {});
       } else {
-        // DMs / Group DMs: edit the deferred interaction reply without quotes
         return await interaction.editReply({
           content: emojiOutput,
         });
@@ -447,6 +441,7 @@ client.on("guildCreate", async (guild) => {
           "EmbedLinks",
           "AttachFiles",
           "ReadMessageHistory",
+          "ModerateMembers",
         ],
         reason: "Default automated role for bot functionality",
       });
@@ -464,7 +459,7 @@ client.on("guildCreate", async (guild) => {
 });
 
 // ==========================================
-// MESSAGE LISTENER (EMOJIS, AUTO-MOD, AI)
+// MESSAGE LISTENER (MODERATION, EMOJIS, AI)
 // ==========================================
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
@@ -492,8 +487,18 @@ client.on("messageCreate", async (message) => {
     return await sendImpersonatedEmojis(message, emojiOutput);
   }
 
+  // Skip moderation and AI trigger logic for DMs
   if (!message.guild) return;
 
+  // 2. Auto-Moderation & Dynamic Timeout Pipeline
+  // Intercepts all chat (including AI prompts and conversations)
+  const wasViolated = await checkAndModerateProfanity(message);
+  if (wasViolated) {
+    // Prohibited content intercepted: do not persist to logs or trigger AI replies
+    return;
+  }
+
+  // Silence AI chat during active minigames
   if (activeGameChannels.has(message.channel.id)) return;
 
   const permissions = message.channel.permissionsFor(client.user);
@@ -501,11 +506,7 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  // 2. Auto-Moderation (Warnings only)
-  const wasViolated = await checkAndModerateProfanity(message);
-  if (wasViolated) return;
-
-  // 3. Persist to 24-hr TTL MongoDB memory
+  // 3. Persist Clean Message to 24-hr TTL Memory
   ChatLog.create({
     guildId: message.guild.id,
     channelId: message.channel.id,
@@ -514,7 +515,7 @@ client.on("messageCreate", async (message) => {
     content: message.content,
   }).catch(() => {});
 
-  // 4. Intelligent Conversation Triggers
+  // 4. Conversational AI Triggers
   const botMentioned = message.mentions.has(client.user);
   const isPrefixed = message.content.toLowerCase().startsWith("?mars");
 
@@ -590,7 +591,7 @@ client.on("messageCreate", async (message) => {
 
         if (!summary) {
           return message.reply(
-            "📡 **Radar is clear — not enough chat activity in the last 6 hours to form a debrief.**",
+            "📡 *Radar is clear — not enough chat activity in the last 3 hours to form a debrief.*",
           );
         }
         const bannerFile = new AttachmentBuilder(
@@ -601,7 +602,7 @@ client.on("messageCreate", async (message) => {
         );
         const summaryEmbed = new EmbedBuilder()
           .setColor(0x5865f2)
-          .setTitle(`🛰️ Summary • Last 6 Hours`)
+          .setTitle(`🛰️ Summary • Last 3 Hours`)
           .setDescription(`${summary}`)
           .setImage("attachment://mars-banner.png")
           .setTimestamp();
@@ -639,7 +640,7 @@ client.on("messageCreate", async (message) => {
   }
 });
 
-// Database & Server Listener
+// Database & Server Initialization
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => {

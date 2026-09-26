@@ -1,4 +1,5 @@
 const Warning = require("../models/Warning");
+const { evaluateContentModeration } = require("./aiService");
 
 const LEET_MAP = {
   0: "o",
@@ -153,7 +154,7 @@ function normalizeText(text) {
   return { stripped, collapsed };
 }
 
-function containsAbuse(rawContent) {
+function localContainsAbuse(rawContent) {
   if (!rawContent) return false;
   const { stripped, collapsed } = normalizeText(rawContent);
 
@@ -173,12 +174,9 @@ function containsAbuse(rawContent) {
   return false;
 }
 
-function isExcessiveNonEnglish(rawContent) {
+function localIsNonEnglish(rawContent) {
   if (!rawContent) return false;
-
-  if (NON_LATIN_SCRIPT_REGEX.test(rawContent)) {
-    return true;
-  }
+  if (NON_LATIN_SCRIPT_REGEX.test(rawContent)) return true;
 
   const words = rawContent
     .toLowerCase()
@@ -186,49 +184,109 @@ function isExcessiveNonEnglish(rawContent) {
     .split(/\s+/)
     .filter((w) => w.length > 1);
 
-  if (words.length < 4) return false;
+  if (words.length < 3) return false;
 
   let hinglishCount = 0;
   for (const word of words) {
-    if (HINGLISH_DICTIONARY.has(word)) {
-      hinglishCount++;
-    }
+    if (HINGLISH_DICTIONARY.has(word)) hinglishCount++;
   }
 
-  const density = hinglishCount / words.length;
-  return density >= 0.35;
+  return hinglishCount / words.length >= 0.35;
 }
 
 async function checkAndModerateProfanity(message) {
-  // Check 1: Explicit Abuse / Profanity Warning (Text kept in chat)
-  if (containsAbuse(message.content)) {
+  if (!message.guild || message.author.bot) return false;
+
+  const rawText = message.content.trim();
+  if (!rawText) return false;
+
+  // 1. Fast Local Pattern Evaluation
+  let isProfane = localContainsAbuse(rawText);
+  let isNonEnglish = localIsNonEnglish(rawText);
+
+  // 2. Multilingual AI Moderation Check (detects cuss words in Spanish, Arabic, Hindi, etc.)
+  if (!isProfane) {
+    const aiAnalysis = await evaluateContentModeration(rawText);
+    if (aiAnalysis) {
+      if (aiAnalysis.isProfane) isProfane = true;
+      if (aiAnalysis.isNonEnglish) isNonEnglish = true;
+    }
+  }
+
+  // ==========================================
+  // PROFANITY / CUSSING DETECTED (ANY LANGUAGE)
+  // ==========================================
+  if (isProfane) {
     try {
       const warnDoc = await Warning.findOneAndUpdate(
         { guildId: message.guild.id, userId: message.author.id },
-        { $inc: { count: 1 }, $set: { lastWarning: new Date() } },
-        { upsert: true, returnDocument: "after" },
+        {
+          $inc: { strikes: 1 },
+          $set: {
+            lastReason: "Multilingual Profanity / Abusive Language",
+            updatedAt: new Date(),
+          },
+        },
+        { upsert: true, new: true },
       );
 
+      const strikes = warnDoc.strikes;
+      const member =
+        message.member ||
+        (await message.guild.members
+          .fetch(message.author.id)
+          .catch(() => null));
+
+      // Dynamic Timeout for > 20 Strikes
+      if (strikes > 5 && member) {
+        const timeoutSeconds = strikes; // e.g. 21s, 22s, 35s
+        const timeoutMs = timeoutSeconds * 1000;
+
+        const botMember = message.guild.members.me;
+        if (botMember && botMember.permissions.has("ModerateMembers")) {
+          try {
+            await member.timeout(
+              timeoutMs,
+              `Exceeded 5 warning threshold (${strikes} strikes)`,
+            );
+
+            await message.channel.send({
+              content: `⚠️ ${message.author}, watch your language. Curse words in any language are not permitted! **[Warning #${strikes}]** \n\n 🔇 **Timeout Applied:** ${message.author} is muted for **${timeoutSeconds} seconds**.`,
+            });
+            return true;
+          } catch (timeoutErr) {
+            console.error("[AutoMod Timeout Error]:", timeoutErr);
+          }
+        }
+      }
+
+      // If cuss word was in a non-English language, combine the cuss warning with the English policy
+      const langNote = isNonEnglish
+        ? ` Please also note that conversations must remain in **English**.`
+        : "";
+
       await message.channel.send({
-        content: `⚠️ ${message.author}, watch your language. Keep it civil and curse-free! \`[Warning #${warnDoc.count}]\``,
+        content: `⚠️ ${message.author}, watch your language. Curse words in any language are not permitted! \`[Warning #${strikes}]\`${langNote}`,
       });
 
-      return false; // Return false so text is logged to rolling memory
+      return true; // Blocks AI response and halts pipeline
     } catch (err) {
-      console.error("AutoMod Profanity Error:", err);
+      console.error("[AutoMod Profanity Error]:", err);
       return false;
     }
   }
 
-  // Check 2: Language Preference (English reminder)
-  if (isExcessiveNonEnglish(message.content)) {
+  // ==========================================
+  // PURE NON-ENGLISH LANGUAGE CHECK (NO CUSSING)
+  // ==========================================
+  if (isNonEnglish) {
     try {
       await message.channel.send({
         content: `🌐 ${message.author}, please keep the conversation in **English** so everyone in the server can understand and participate!`,
       });
-      return false;
+      return true; // Halts conversational AI execution
     } catch (err) {
-      console.error("AutoMod Language Error:", err);
+      console.error("[AutoMod Language Error]:", err);
       return false;
     }
   }
