@@ -9,6 +9,8 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
+  MessageFlags,
+  Routes,
 } = require("discord.js");
 const path = require("path");
 const mongoose = require("mongoose");
@@ -28,7 +30,7 @@ const {
   answerContextualQuery,
 } = require("./services/aiService");
 
-// Global Process Handlers
+// Process safeguards
 process.on("unhandledRejection", (reason) =>
   console.error("Unhandled Rejection:", reason),
 );
@@ -86,7 +88,7 @@ client.once("clientReady", () => {
 });
 
 // ==========================================
-// EMOJI RESOLVER & HELPER FUNCTIONS
+// EMOJI RESOLVER & DISPATCH ENGINE
 // ==========================================
 const EMOTION_FALLBACKS = {
   laugh: ["😂", "🤣", "💀"],
@@ -169,6 +171,7 @@ async function selectEmojisForQuery(client, guild, query) {
   return unique.slice(0, count).join(" ");
 }
 
+// Prefix Command (>emoji / >emj) Impersonation
 async function sendImpersonatedEmojis(message, emojiOutput) {
   if (!message.guild) {
     const dmEmbed = new EmbedBuilder()
@@ -193,7 +196,9 @@ async function sendImpersonatedEmojis(message, emojiOutput) {
 
   try {
     const webhooks = await message.channel.fetchWebhooks();
-    let hook = webhooks.find((w) => w.owner?.id === message.client.user.id);
+    let hook = webhooks.find(
+      (w) => w.owner?.id === message.client.user.id && w.token,
+    );
 
     if (!hook) {
       hook = await message.channel.createWebhook({
@@ -219,56 +224,156 @@ async function sendImpersonatedEmojis(message, emojiOutput) {
   }
 }
 
+// True Native Reply Connector Line for Webhooks (Guilds)
+async function sendContextImpersonatedEmojis(
+  interaction,
+  targetMessage,
+  emojiOutput,
+) {
+  const member = interaction.member;
+  const user = interaction.user;
+  const displayName = (
+    member?.displayName ||
+    user.displayName ||
+    user.username
+  ).slice(0, 32);
+  const avatarURL = user.displayAvatarURL({
+    forceStatic: false,
+    extension: "png",
+    size: 512,
+  });
+
+  const botMember = interaction.guild.members.me;
+  const channelPerms = interaction.channel.permissionsFor(botMember);
+
+  if (!channelPerms || !channelPerms.has("ManageWebhooks")) {
+    console.warn(
+      `[Webhook Warning] Missing "Manage Webhooks" in #${interaction.channel.name}`,
+    );
+    if (targetMessage) {
+      return await targetMessage
+        .reply({
+          content: `**${displayName}**: ${emojiOutput}`,
+          allowedMentions: { repliedUser: false },
+        })
+        .catch(() =>
+          interaction.channel.send(`**${displayName}**: ${emojiOutput}`),
+        );
+    }
+    return await interaction.channel.send(`**${displayName}**: ${emojiOutput}`);
+  }
+
+  try {
+    const webhooks = await interaction.channel.fetchWebhooks();
+    let hook = webhooks.find(
+      (w) => w.owner?.id === interaction.client.user.id && w.token,
+    );
+
+    if (!hook) {
+      hook = await interaction.channel.createWebhook({
+        name: "Mars Context Relay",
+        avatar: interaction.client.user.displayAvatarURL(),
+        reason: "Context menu native reply impersonation",
+      });
+    }
+
+    // Execute via REST API with message_reference to force Discord's native grey reply connector line
+    const requestBody = {
+      content: emojiOutput,
+      username: displayName,
+      avatar_url: avatarURL,
+      allowed_mentions: {
+        replied_user: false,
+      },
+    };
+
+    if (targetMessage) {
+      requestBody.message_reference = {
+        message_id: targetMessage.id,
+        fail_if_not_exists: false,
+      };
+    }
+
+    await interaction.client.rest.post(Routes.webhook(hook.id, hook.token), {
+      body: requestBody,
+      auth: false,
+    });
+  } catch (err) {
+    console.error("[Webhook Error] Could not send via webhook:", err);
+
+    if (targetMessage) {
+      await targetMessage
+        .reply({
+          content: `**${displayName}**: ${emojiOutput}`,
+          allowedMentions: { repliedUser: false },
+        })
+        .catch(() => {});
+    } else {
+      await interaction.channel.send(`**${displayName}**: ${emojiOutput}`);
+    }
+  }
+}
+
 // ==========================================
-// UNIFIED INTERACTION HANDLER
+// UNIFIED INTERACTION HANDLER (SINGLETON)
 // ==========================================
 client.on("interactionCreate", async (interaction) => {
-  // 1. Slash Commands (/court, /dungeon, /spyfall, /twotruths, /twentyq)
-  if (interaction.isChatInputCommand()) {
-    try {
-      await handleGameInteractions(interaction);
-    } catch (err) {
-      console.error("Game Execution Error:", err);
-      if (interaction.deferred || interaction.replied) {
-        await interaction.followUp({
-          content: "Encountered an internal error while running this game.",
-          ephemeral: true,
-        });
-      } else {
-        await interaction.reply({
-          content: "Encountered an internal error while running this game.",
-          ephemeral: true,
-        });
-      }
-    }
-    return;
-  }
-
-  // 2. Right-Click Context Menu Command ("React With Emojis")
+  // 1. Right-Click Context Menu Command ("React With Emojis")
   if (interaction.isMessageContextMenuCommand()) {
     if (interaction.commandName === "React With Emojis") {
-      const modal = new ModalBuilder()
-        .setCustomId(`emoji_modal_${interaction.targetMessage.id}`)
-        .setTitle("Emoji Dispatcher");
+      try {
+        const modal = new ModalBuilder()
+          .setCustomId(`emoji_modal_${interaction.targetMessage.id}`)
+          .setTitle("Emoji Dispatcher");
 
-      const input = new TextInputBuilder()
-        .setCustomId("emoji_vibe_input")
-        .setLabel("Enter Emotion, Action, or Vibe:")
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder("e.g. fire, happy, gg, laugh, cry, skull")
-        .setMinLength(2)
-        .setMaxLength(50)
-        .setRequired(true);
+        const input = new TextInputBuilder()
+          .setCustomId("emoji_vibe_input")
+          .setLabel("Enter Emotion, Action, or Vibe:")
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder("e.g. fire, happy, gg, laugh, cry, skull")
+          .setMinLength(2)
+          .setMaxLength(50)
+          .setRequired(true);
 
-      modal.addComponents(new ActionRowBuilder().addComponents(input));
-      return await interaction.showModal(modal);
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+
+        return await interaction.showModal(modal);
+      } catch (err) {
+        if (err.code !== 40060 && err.code !== 10062) {
+          console.error("[Context Menu Error]:", err);
+        }
+        return;
+      }
     }
   }
 
-  // 3. Modal Form Submissions
+  // 2. Modal Form Submissions
   if (interaction.isModalSubmit()) {
     if (interaction.customId.startsWith("emoji_modal_")) {
+      const isGuild = !!interaction.guild;
+
+      try {
+        // In Guilds: defer ephemerally so the webhook can post separately.
+        // In DMs/Group DMs: defer without ephemeral so editReply delivers the emojis.
+        if (isGuild) {
+          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        } else {
+          await interaction.deferReply();
+        }
+      } catch {
+        return;
+      }
+
+      const targetMessageId = interaction.customId.replace("emoji_modal_", "");
       const vibe = interaction.fields.getTextInputValue("emoji_vibe_input");
+
+      let targetMessage = null;
+      try {
+        targetMessage =
+          await interaction.channel.messages.fetch(targetMessageId);
+      } catch {
+        // Message might be deleted or uncached
+      }
 
       const emojiOutput = await selectEmojisForQuery(
         interaction.client,
@@ -276,10 +381,46 @@ client.on("interactionCreate", async (interaction) => {
         vibe,
       );
 
-      return await interaction.reply({
-        content: `${emojiOutput}`,
-      });
+      if (isGuild) {
+        // Guild: send via impersonated webhook with native curved connector line
+        await sendContextImpersonatedEmojis(
+          interaction,
+          targetMessage,
+          emojiOutput,
+        );
+        return await interaction.deleteReply().catch(() => {});
+      } else {
+        // DMs / Group DMs: edit the deferred interaction reply without quotes
+        return await interaction.editReply({
+          content: emojiOutput,
+        });
+      }
     }
+  }
+
+  // 3. Slash Commands (/court, /dungeon, /spyfall, /twotruths, /twentyq)
+  if (interaction.isChatInputCommand()) {
+    try {
+      await handleGameInteractions(interaction);
+    } catch (err) {
+      console.error("[Game Execution Error]:", err);
+      if (interaction.deferred || interaction.replied) {
+        await interaction
+          .followUp({
+            content: "Encountered an internal error while running this game.",
+            flags: MessageFlags.Ephemeral,
+          })
+          .catch(() => {});
+      } else {
+        await interaction
+          .reply({
+            content: "Encountered an internal error while running this game.",
+            flags: MessageFlags.Ephemeral,
+          })
+          .catch(() => {});
+      }
+    }
+    return;
   }
 });
 
@@ -331,7 +472,7 @@ client.on("messageCreate", async (message) => {
   const content = message.content.trim();
   const isEmojiCmd = /^>(emoji|emj)\b/i.test(content);
 
-  // 1. Emoji Dispatcher (>emoji or >emj) — works in servers and DMs
+  // 1. Emoji Dispatcher (>emoji or >emj)
   if (isEmojiCmd) {
     const rawQuery = content.replace(/^>(emoji|emj)/i, "").trim();
 
@@ -351,10 +492,8 @@ client.on("messageCreate", async (message) => {
     return await sendImpersonatedEmojis(message, emojiOutput);
   }
 
-  // Skip moderation and AI trigger logic for DMs
   if (!message.guild) return;
 
-  // Silence AI chat during active minigames
   if (activeGameChannels.has(message.channel.id)) return;
 
   const permissions = message.channel.permissionsFor(client.user);
@@ -451,7 +590,7 @@ client.on("messageCreate", async (message) => {
 
         if (!summary) {
           return message.reply(
-            "📡 *Radar is clear — not enough chat activity in the last 3 hours to form a debrief.*",
+            "📡 **Radar is clear — not enough chat activity in the last 6 hours to form a debrief.**",
           );
         }
         const bannerFile = new AttachmentBuilder(
@@ -462,7 +601,7 @@ client.on("messageCreate", async (message) => {
         );
         const summaryEmbed = new EmbedBuilder()
           .setColor(0x5865f2)
-          .setTitle(`🛰️ Summary • Last 3 Hours`)
+          .setTitle(`🛰️ Summary • Last 6 Hours`)
           .setDescription(`${summary}`)
           .setImage("attachment://mars-banner.png")
           .setTimestamp();

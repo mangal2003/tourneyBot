@@ -17,14 +17,15 @@ const {
   askNextTwentyQuestion,
 } = require("../services/gameService");
 
-// Global registry preventing conversational AI interference during active games
 const activeGameChannels = new Set();
 
 async function handleGameInteractions(interaction) {
+  if (!interaction.isChatInputCommand()) return;
+
   const { commandName, channel, user } = interaction;
 
   // ==========================================
-  // GAME 1: SPYFALL (120s LOBBY + EPHEMERAL DOSSIERS)
+  // GAME 1: SPYFALL
   // ==========================================
   if (commandName === "spyfall") {
     activeGameChannels.add(channel.id);
@@ -167,7 +168,7 @@ async function handleGameInteractions(interaction) {
   }
 
   // ==========================================
-  // GAME 2: TWO TRUTHS & AN AI LIE (STRICT SINGLE-CLICK)
+  // GAME 2: TWO TRUTHS & AN AI LIE
   // ==========================================
   if (commandName === "twotruths") {
     await interaction.deferReply();
@@ -259,7 +260,7 @@ async function handleGameInteractions(interaction) {
   }
 
   // ==========================================
-  // GAME 3: CO-OP DUNGEON (BUTTON ACTIONS + 60s LOBBY)
+  // GAME 3: CO-OP DUNGEON (BUTTON RAID)
   // ==========================================
   if (commandName === "dungeon") {
     activeGameChannels.add(channel.id);
@@ -461,7 +462,7 @@ async function handleGameInteractions(interaction) {
     }
 
     const transcript = [];
-    let currentSpeaker = p1; // Prosecution starts
+    let currentSpeaker = p1;
     let currentRound = 1;
 
     const buildCourtEmbed = () =>
@@ -497,17 +498,16 @@ async function handleGameInteractions(interaction) {
     });
     let currentControlMessage = await interaction.fetchReply();
 
-    // Channel-level listener captures button clicks across regenerated messages
     const collector = channel.createMessageComponentCollector({
       componentType: ComponentType.Button,
       filter: (btn) =>
         btn.customId === "court_submit_arg" ||
         btn.customId === "court_call_verdict",
-      time: 600000, // 10 minute court limit
+      time: 600000,
     });
 
     collector.on("collect", async (btn) => {
-      // --- ACTION A: SUBMIT ARGUMENT VIA MODAL ---
+      // SUBMIT ARGUMENT
       if (btn.customId === "court_submit_arg") {
         if (btn.user.id !== currentSpeaker.id) {
           return btn.reply({
@@ -555,12 +555,10 @@ async function handleGameInteractions(interaction) {
             ephemeral: true,
           });
 
-          // 1. Delete previous control panel so only ONE exists in the channel
           if (currentControlMessage) {
             await currentControlMessage.delete().catch(() => {});
           }
 
-          // 2. Post argument card in recent chat
           const argEmbed = new EmbedBuilder()
             .setColor(currentSpeaker.id === p1.id ? 0xe63946 : 0x457b9d)
             .setAuthor({
@@ -573,23 +571,21 @@ async function handleGameInteractions(interaction) {
 
           await channel.send({ embeds: [argEmbed] });
 
-          // 3. Advance turn & round
           if (currentSpeaker.id === p2.id) {
             currentRound++;
           }
           currentSpeaker = currentSpeaker.id === p1.id ? p2 : p1;
 
-          // 4. Send brand NEW status dashboard at bottom of chat
           currentControlMessage = await channel.send({
             embeds: [buildCourtEmbed()],
             components: [makeCourtButtons()],
           });
         } catch {
-          // Modal draft timed out
+          // Timed out
         }
       }
 
-      // --- ACTION B: CALL FOR FINAL VERDICT ---
+      // CALL FOR VERDICT
       if (btn.customId === "court_call_verdict") {
         if (btn.user.id !== p1.id && btn.user.id !== p2.id) {
           return btn.reply({
@@ -617,7 +613,6 @@ async function handleGameInteractions(interaction) {
     collector.on("end", async (_, reason) => {
       activeGameChannels.delete(channel.id);
 
-      // Clean up the singleton dashboard
       if (currentControlMessage) {
         await currentControlMessage.delete().catch(() => {});
       }
@@ -692,7 +687,6 @@ async function handleGameInteractions(interaction) {
 
     for (let round = 1; round <= 20; round++) {
       const question = await askNextTwentyQuestion(history);
-
       const isOfficialGuess =
         question.toLowerCase().startsWith("is it ") ||
         question.toLowerCase().startsWith("are you thinking of");

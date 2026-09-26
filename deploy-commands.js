@@ -8,19 +8,19 @@ const {
 } = require("discord.js");
 
 const commands = [
-  // Context Menu Message Command (Apps -> React With Emojis)
+  // 1. Right-Click Context Menu Command (Apps -> React With Emojis)
   new ContextMenuCommandBuilder()
     .setName("React With Emojis")
     .setType(ApplicationCommandType.Message)
-    .setContexts([0, 1, 2]) // Guild, BotDM, PrivateChannel
-    .setIntegrationTypes([0, 1]), // GuildInstall, UserInstall
+    .setContexts([0, 1, 2]) // 0: Guild, 1: BotDM, 2: PrivateChannel
+    .setIntegrationTypes([0, 1]), // 0: GuildInstall, 1: UserInstall
 
-  // 1. Spyfall
+  // 2. Game: Spyfall
   new SlashCommandBuilder()
     .setName("spyfall")
     .setDescription("Start a game of AI Spyfall (3-8 players)"),
 
-  // 2. Two Truths & An AI Lie
+  // 3. Game: Two Truths & An AI Lie
   new SlashCommandBuilder()
     .setName("twotruths")
     .setDescription("Spot the AI hallucination among two verified facts")
@@ -31,12 +31,12 @@ const commands = [
         .setRequired(false),
     ),
 
-  // 3. Co-op Dungeon
+  // 4. Game: Co-op Dungeon Raid
   new SlashCommandBuilder()
     .setName("dungeon")
     .setDescription("Embark on an AI-narrated party dungeon raid"),
 
-  // 4. Devil's Advocate Court
+  // 5. Game: Devil's Advocate Court
   new SlashCommandBuilder()
     .setName("court")
     .setDescription("Start an absurd debate duel judged by AI")
@@ -53,7 +53,7 @@ const commands = [
         .setRequired(false),
     ),
 
-  // 5. Reverse 20 Questions
+  // 6. Game: Reverse 20 Questions
   new SlashCommandBuilder()
     .setName("twentyq")
     .setDescription(
@@ -69,10 +69,8 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
     await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), {
       body: commands,
     });
-    console.log(
-      "[Commands] Successfully deployed all 6 commands (5 slash + 1 context menu).",
-    );
+    console.log("[Commands] Successfully deployed all 6 commands.");
   } catch (error) {
-    console.error("Deploy Error:", error);
+    console.error("[Deploy Error]:", error);
   }
 })();
