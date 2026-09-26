@@ -126,16 +126,30 @@ async function getDebateTopic() {
     : "Resolved: Pineapples on pizza should be punished by community service.";
 }
 
-async function judgeDebate(topic, p1Name, p1Arg, p2Name, p2Arg) {
+async function judgeDebate(topic, p1Name, p2Name, debateTranscript) {
+  const formattedTranscript = debateTranscript
+    .map(
+      (entry) => `[Round ${entry.round}] ${entry.speaker}: "${entry.argument}"`,
+    )
+    .join("\n\n");
+
   const prompt = `
 You are the Supreme Magistrate of the Court of Absurdity.
-Topic: "${topic}"
-Prosecution (${p1Name}): "${p1Arg}"
-Defense (${p2Name}): "${p2Arg}"
+Topic / Motion: "${topic}"
 
-Critique both arguments with witty legal humor. Declare an official winner based on comedic rhetoric and delivery. 
-Keep it concise (3-4 sentences total).
+Trial Transcript:
+${formattedTranscript}
+
+Prosecution: ${p1Name}
+Defense: ${p2Name}
+
+Tasks:
+1. Deliver a sharp, witty legal critique of how the entire debate unfolded across the rounds.
+2. Evaluate who had the more convincing rhetoric, better rebuttals, or funniest logic.
+3. Declare an official winner (${p1Name} or ${p2Name}) with an official title/punishment for the losing party.
+Keep the verdict between 4-6 sentences. Tone: Formal, funny, and dramatic.
 `;
+
   return await queryAI(prompt);
 }
 
