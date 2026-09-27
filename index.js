@@ -20,31 +20,31 @@ const {
   activeGameChannels,
 } = require("./handlers/gameHandlers");
 
-// Models
+// Database Models
 const ChatLog = require("./models/ChatLog");
+const GuildWelcome = require("./models/GuildWelcome");
 
-// Services
+// Internal AI & Auto-Mod Services
 const { checkAndModerateProfanity } = require("./services/autoModService");
 const {
+  translateToEnglish,
   generateChatSummary,
   answerContextualQuery,
 } = require("./services/aiService");
 
-// Process safeguards
+// Process-level crash prevention
 process.on("unhandledRejection", (reason) =>
-  console.error("Unhandled Rejection:", reason),
+  console.error("[Process Safeguard] Unhandled Rejection:", reason),
 );
 process.on("uncaughtException", (error) =>
-  console.error("Uncaught Exception:", error),
+  console.error("[Process Safeguard] Uncaught Exception:", error),
 );
 
 function splitMessage(text, maxLength = 1900) {
   if (text.length <= maxLength) return [text];
   const chunks = [];
   let current = "";
-
-  const lines = text.split("\n");
-  for (const line of lines) {
+  for (const line of text.split("\n")) {
     if ((current + "\n" + line).length > maxLength) {
       if (current) chunks.push(current);
       current = line;
@@ -56,40 +56,36 @@ function splitMessage(text, maxLength = 1900) {
   return chunks;
 }
 
-function createCapacityEmbed(guild, user) {
+function createCapacityEmbed() {
   return new EmbedBuilder()
     .setColor(0xff9900)
     .setDescription(
-      `All active AI models are currently experiencing high request demand.\n\n` +
-        `> **Cooldown Advisory:** Please give the AI processors **45-60 seconds** to reset before initiating another request or channel recap.`,
+      "All active AI models are currently under heavy load.\nPlease wait **45–60 seconds** before making another request.",
     )
-    .setFooter({
-      text: `Auto-Recovery`,
-    })
+    .setFooter({ text: "Auto-Recovery System" })
     .setTimestamp();
 }
 
+// Client Gateway initialization with required Privileged Intents
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.DirectMessages,
   ],
   partials: [Partials.Channel, Partials.Message],
-  rest: {
-    timeout: 30000,
-  },
+  rest: { timeout: 30000 },
 });
 
 client.once("clientReady", () => {
-  console.log(`[MARSIAN AI] Bot online as ${client.user.tag}`);
+  console.log(`[MARSIAN AI] Bot connected as ${client.user.tag}`);
 });
 
 // ==========================================
-// EMOJI RESOLVER & DISPATCH ENGINE
+// EMOJI RESOLVER & MATCHER ENGINE
 // ==========================================
 const EMOTION_FALLBACKS = {
   laugh: ["😂", "🤣", "💀"],
@@ -107,38 +103,35 @@ const EMOTION_FALLBACKS = {
 };
 
 async function getAvailableEmojis(client, guild) {
-  const customList = [];
-
+  const list = [];
   try {
     if (client.application) {
       const appEmojis = await client.application.emojis.fetch();
       appEmojis.forEach((e) => {
-        customList.push({
+        list.push({
           name: e.name.toLowerCase(),
           tag: e.animated ? `<a:${e.name}:${e.id}>` : `<:${e.name}:${e.id}>`,
         });
       });
     }
   } catch (err) {
-    console.error("Failed fetching app emojis:", err);
+    console.error("[Emoji Engine] Failed to fetch application emojis:", err);
   }
 
   if (guild) {
     guild.emojis.cache.forEach((e) => {
-      customList.push({
+      list.push({
         name: e.name.toLowerCase(),
         tag: e.animated ? `<a:${e.name}:${e.id}>` : `<:${e.name}:${e.id}>`,
       });
     });
   }
-
-  return customList;
+  return list;
 }
 
 async function selectEmojisForQuery(client, guild, query) {
   const allEmojis = await getAvailableEmojis(client, guild);
   const cleanQuery = query ? query.toLowerCase().trim() : "";
-
   let matched = [];
 
   if (cleanQuery) {
@@ -160,11 +153,8 @@ async function selectEmojisForQuery(client, guild, query) {
   }
 
   if (matched.length === 0) {
-    if (allEmojis.length > 0) {
-      matched = allEmojis.sort(() => 0.5 - Math.random()).map((e) => e.tag);
-    } else {
-      matched = ["✨", "🔥", "⚡"];
-    }
+    matched =
+      allEmojis.length > 0 ? allEmojis.map((e) => e.tag) : ["✨", "🔥", "⚡"];
   }
 
   const unique = Array.from(new Set(matched));
@@ -172,64 +162,13 @@ async function selectEmojisForQuery(client, guild, query) {
   return unique.slice(0, count).join(" ");
 }
 
-// Prefix Command (>emoji / >emj) Impersonation
-async function sendImpersonatedEmojis(message, emojiOutput) {
-  if (!message.guild) {
-    const dmEmbed = new EmbedBuilder()
-      .setAuthor({
-        name: message.author.displayName || message.author.username,
-        iconURL: message.author.displayAvatarURL({ dynamic: true }),
-      })
-      .setDescription(emojiOutput)
-      .setColor(0x2b2d31);
-
-    return message.channel.send({ embeds: [dmEmbed] }).catch(() => {});
-  }
-
-  const botMember = message.guild.members.me;
-  const channelPerms = message.channel.permissionsFor(botMember);
-
-  if (!channelPerms || !channelPerms.has("ManageWebhooks")) {
-    return message.channel.send({
-      content: `**${message.member?.displayName || message.author.username}**: ${emojiOutput}`,
-    });
-  }
-
-  try {
-    const webhooks = await message.channel.fetchWebhooks();
-    let hook = webhooks.find(
-      (w) => w.owner?.id === message.client.user.id && w.token,
-    );
-
-    if (!hook) {
-      hook = await message.channel.createWebhook({
-        name: "ATX Emoji Dispatcher",
-        avatar: message.client.user.displayAvatarURL(),
-        reason: "Impersonated emoji messaging pipeline",
-      });
-    }
-
-    await hook.send({
-      content: emojiOutput,
-      username:
-        message.member?.displayName ||
-        message.author.displayName ||
-        message.author.username,
-      avatarURL: message.author.displayAvatarURL({ dynamic: true }),
-    });
-  } catch (err) {
-    console.error("Webhook Dispatch Failure:", err);
-    await message.channel.send({
-      content: `**${message.member?.displayName || message.author.username}**: ${emojiOutput}`,
-    });
-  }
-}
-
-// True Native Reply Connector Line for Webhooks (Guilds)
-async function sendContextImpersonatedEmojis(
+// ==========================================
+// IMPERSONATION TRANSMISSION PIPELINE
+// ==========================================
+async function sendContextImpersonatedMessage(
   interaction,
   targetMessage,
-  emojiOutput,
+  content,
 ) {
   const member = interaction.member;
   const user = interaction.user;
@@ -244,24 +183,25 @@ async function sendContextImpersonatedEmojis(
     size: 512,
   });
 
+  if (!interaction.guild) {
+    return await interaction.editReply({ content });
+  }
+
   const botMember = interaction.guild.members.me;
   const channelPerms = interaction.channel.permissionsFor(botMember);
 
   if (!channelPerms || !channelPerms.has("ManageWebhooks")) {
-    console.warn(
-      `[Webhook Warning] Missing "Manage Webhooks" in #${interaction.channel.name}`,
-    );
     if (targetMessage) {
       return await targetMessage
         .reply({
-          content: `**${displayName}**: ${emojiOutput}`,
+          content: `**${displayName}**: ${content}`,
           allowedMentions: { repliedUser: false },
         })
         .catch(() =>
-          interaction.channel.send(`**${displayName}**: ${emojiOutput}`),
+          interaction.channel.send(`**${displayName}**: ${content}`),
         );
     }
-    return await interaction.channel.send(`**${displayName}**: ${emojiOutput}`);
+    return await interaction.channel.send(`**${displayName}**: ${content}`);
   }
 
   try {
@@ -272,121 +212,50 @@ async function sendContextImpersonatedEmojis(
 
     if (!hook) {
       hook = await interaction.channel.createWebhook({
-        name: "Mars Context Relay",
+        name: "Mars Relay",
         avatar: interaction.client.user.displayAvatarURL(),
-        reason: "Context menu native reply impersonation",
+        reason: "Impersonated emoji & translation relay",
       });
     }
 
-    const requestBody = {
-      content: emojiOutput,
+    const payload = {
+      content: content,
       username: displayName,
       avatar_url: avatarURL,
-      allowed_mentions: {
-        replied_user: false,
-      },
+      allowed_mentions: { replied_user: false },
     };
 
     if (targetMessage) {
-      requestBody.message_reference = {
+      payload.message_reference = {
         message_id: targetMessage.id,
         fail_if_not_exists: false,
       };
     }
 
     await interaction.client.rest.post(Routes.webhook(hook.id, hook.token), {
-      body: requestBody,
+      body: payload,
       auth: false,
     });
   } catch (err) {
-    console.error("[Webhook Error] Could not send via webhook:", err);
-
+    console.error("[Webhook Error] Fallback to standard message reply:", err);
     if (targetMessage) {
       await targetMessage
         .reply({
-          content: `**${displayName}**: ${emojiOutput}`,
+          content: `**${displayName}**: ${content}`,
           allowedMentions: { repliedUser: false },
         })
         .catch(() => {});
     } else {
-      await interaction.channel.send(`**${displayName}**: ${emojiOutput}`);
+      await interaction.channel.send(`**${displayName}**: ${content}`);
     }
   }
 }
 
-const GuildWelcome = require("./models/GuildWelcome");
-
 // ==========================================
-// NEW MEMBER JOIN LISTENER
-// ==========================================
-client.on("guildMemberAdd", async (member) => {
-  if (member.user.bot) return;
-
-  try {
-    const config = await GuildWelcome.findOne({ guildId: member.guild.id });
-    if (!config || !config.isEnabled || !config.channelId) return;
-
-    const welcomeChannel = member.guild.channels.cache.get(config.channelId);
-    if (!welcomeChannel) return;
-
-    // Check bot permissions in target channel
-    const perms = welcomeChannel.permissionsFor(member.guild.members.me);
-    if (!perms || !perms.has(["SendMessages", "EmbedLinks"])) return;
-
-    // Substitute dynamic placeholders
-    const formattedGreeting = config.greetingMessage
-      .replace(/{user}/g, `${member}`)
-      .replace(/{username}/g, member.user.username)
-      .replace(/{server}/g, member.guild.name)
-      .replace(/{memberCount}/g, member.guild.memberCount);
-
-    // Build channel roadmap guide
-    const guideLines = [];
-    if (config.rulesChannelId)
-      guideLines.push(`📜 **Guidelines:** <#${config.rulesChannelId}>`);
-    if (config.chatChannelId)
-      guideLines.push(`💬 **General Chat:** <#${config.chatChannelId}>`);
-    if (config.rolesChannelId)
-      guideLines.push(`🎭 **Pick Roles:** <#${config.rolesChannelId}>`);
-
-    const welcomeEmbed = new EmbedBuilder()
-      .setColor(config.embedColor || 0x5865f2)
-      .setAuthor({
-        name: `Welcome to ${member.guild.name}!`,
-        iconURL: member.guild.iconURL({ dynamic: true }) || undefined,
-      })
-      .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
-      .setDescription(
-        `${formattedGreeting}\n\n` +
-          (guideLines.length > 0
-            ? `### 🧭 Quick Start Guide\n${guideLines.join("\n")}\n\n`
-            : "") +
-          `> *You are member **#${member.guild.memberCount}** to join the community.*`,
-      )
-      .setTimestamp()
-      .setFooter({
-        text: `ID: ${member.id}`,
-        iconURL: member.guild.iconURL({ dynamic: true }) || undefined,
-      });
-
-    if (config.bannerUrl) {
-      welcomeEmbed.setImage(config.bannerUrl);
-    }
-
-    await welcomeChannel.send({
-      content: `👋 Welcome ${member}!`,
-      embeds: [welcomeEmbed],
-    });
-  } catch (err) {
-    console.error("[Welcome Dispatch Error]:", err);
-  }
-});
-
-// ==========================================
-// UNIFIED INTERACTION HANDLER (SINGLETON)
+// UNIFIED INTERACTION HANDLER
 // ==========================================
 client.on("interactionCreate", async (interaction) => {
-  // 1. Right-Click Context Menu Command ("React With Emojis")
+  // 1. Context Menu Command: "React With Emojis"
   if (interaction.isMessageContextMenuCommand()) {
     if (interaction.commandName === "React With Emojis") {
       try {
@@ -418,76 +287,94 @@ client.on("interactionCreate", async (interaction) => {
   if (interaction.isModalSubmit()) {
     if (interaction.customId.startsWith("emoji_modal_")) {
       const isGuild = !!interaction.guild;
-
-      try {
-        if (isGuild) {
-          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        } else {
-          await interaction.deferReply();
-        }
-      } catch {
-        return;
-      }
+      await interaction.deferReply({ ephemeral: isGuild }).catch(() => {});
 
       const targetMessageId = interaction.customId.replace("emoji_modal_", "");
       const vibe = interaction.fields.getTextInputValue("emoji_vibe_input");
 
-      let targetMessage = null;
+      let targetMsg = null;
       try {
-        targetMessage =
-          await interaction.channel.messages.fetch(targetMessageId);
-      } catch {
-        // Message might be deleted or uncached
-      }
+        targetMsg = await interaction.channel.messages.fetch(targetMessageId);
+      } catch {}
 
-      const emojiOutput = await selectEmojisForQuery(
+      const output = await selectEmojisForQuery(
         interaction.client,
         interaction.guild,
         vibe,
       );
 
       if (isGuild) {
-        await sendContextImpersonatedEmojis(
-          interaction,
-          targetMessage,
-          emojiOutput,
-        );
+        await sendContextImpersonatedMessage(interaction, targetMsg, output);
         return await interaction.deleteReply().catch(() => {});
       } else {
-        return await interaction.editReply({
-          content: emojiOutput,
-        });
+        return await interaction.editReply({ content: output });
       }
     }
   }
 
-  // 3. Slash Commands (/court, /dungeon, /spyfall, /twotruths, /twentyq)
+  // 3. Slash Commands
   if (interaction.isChatInputCommand()) {
+    // /emj & /emoji
+    if (
+      interaction.commandName === "emj" ||
+      interaction.commandName === "emoji"
+    ) {
+      const isGuild = !!interaction.guild;
+      await interaction.deferReply({ ephemeral: isGuild }).catch(() => {});
+
+      const vibe = interaction.options.getString("vibe") || "";
+      const output = await selectEmojisForQuery(
+        interaction.client,
+        interaction.guild,
+        vibe,
+      );
+
+      if (isGuild) {
+        await sendContextImpersonatedMessage(interaction, null, output);
+        return await interaction.deleteReply().catch(() => {});
+      } else {
+        return await interaction.editReply({ content: output });
+      }
+    }
+
+    // /trn (Universal Fast Translation)
+    if (interaction.commandName === "trn") {
+      const isGuild = !!interaction.guild;
+      await interaction.deferReply({ ephemeral: isGuild }).catch(() => {});
+
+      const text = interaction.options.getString("text");
+      const translation = await translateToEnglish(text);
+      const output = translation || "*(Could not translate text)*";
+
+      if (isGuild) {
+        await sendContextImpersonatedMessage(interaction, null, output);
+        return await interaction.deleteReply().catch(() => {});
+      } else {
+        return await interaction.editReply({ content: output });
+      }
+    }
+
+    // Multiplayer Party Games & Admin Setup (/court, /dungeon, /spyfall, /twotruths, /twentyq, /setwelcome)
     try {
       await handleGameInteractions(interaction);
     } catch (err) {
-      console.error("[Game Execution Error]:", err);
+      console.error("[Command Router Error]:", err);
       if (interaction.deferred || interaction.replied) {
         await interaction
-          .followUp({
-            content: "Encountered an internal error while running this game.",
-            flags: MessageFlags.Ephemeral,
-          })
+          .followUp({ content: "Internal execution error.", ephemeral: true })
           .catch(() => {});
       } else {
         await interaction
-          .reply({
-            content: "Encountered an internal error while running this game.",
-            flags: MessageFlags.Ephemeral,
-          })
+          .reply({ content: "Internal execution error.", ephemeral: true })
           .catch(() => {});
       }
     }
-    return;
   }
 });
 
-// Auto-provision standard roles on server join
+// ==========================================
+// AUTO-PROVISION DEFAULT BOT ROLE
+// ==========================================
 client.on("guildCreate", async (guild) => {
   try {
     const botMember = guild.members.me;
@@ -512,7 +399,7 @@ client.on("guildCreate", async (guild) => {
           "ReadMessageHistory",
           "ModerateMembers",
         ],
-        reason: "Default automated role for bot functionality",
+        reason: "Default automated role for MarsBot functionality",
       });
     }
 
@@ -528,54 +415,84 @@ client.on("guildCreate", async (guild) => {
 });
 
 // ==========================================
-// MESSAGE LISTENER (MODERATION, EMOJIS, AI)
+// MEMBER WELCOME LISTENER
+// ==========================================
+client.on("guildMemberAdd", async (member) => {
+  if (member.user.bot) return;
+
+  try {
+    const config = await GuildWelcome.findOne({ guildId: member.guild.id });
+    if (!config || !config.isEnabled || !config.channelId) return;
+
+    const welcomeChannel = member.guild.channels.cache.get(config.channelId);
+    if (!welcomeChannel) return;
+
+    const perms = welcomeChannel.permissionsFor(member.guild.members.me);
+    if (!perms || !perms.has(["SendMessages", "EmbedLinks"])) return;
+
+    const formattedGreeting = config.greetingMessage
+      .replace(/{user}/g, `${member}`)
+      .replace(/{username}/g, member.user.username)
+      .replace(/{server}/g, member.guild.name)
+      .replace(/{memberCount}/g, member.guild.memberCount);
+
+    const guideLines = [];
+    if (config.rulesChannelId)
+      guideLines.push(`📜 **Guidelines:** <#${config.rulesChannelId}>`);
+    if (config.chatChannelId)
+      guideLines.push(`💬 **General Chat:** <#${config.chatChannelId}>`);
+    if (config.rolesChannelId)
+      guideLines.push(`🎭 **Pick Roles:** <#${config.rolesChannelId}>`);
+
+    const welcomeEmbed = new EmbedBuilder()
+      .setColor(config.embedColor || 0x5865f2)
+      .setAuthor({
+        name: `Welcome to ${member.guild.name}!`,
+        iconURL: member.guild.iconURL({ dynamic: true }) || undefined,
+      })
+      .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
+      .setDescription(
+        `${formattedGreeting}\n\n` +
+          (guideLines.length > 0
+            ? `### 🧭 Quick Start Guide\n${guideLines.join("\n")}\n\n`
+            : "") +
+          `> *You are member **#${member.guild.memberCount}** to join the community.*`,
+      )
+      .setTimestamp()
+      .setFooter({
+        text: `ID: ${member.id}`,
+        iconURL: member.guild.iconURL({ dynamic: true }) || undefined,
+      });
+
+    if (config.bannerUrl) welcomeEmbed.setImage(config.bannerUrl);
+
+    await welcomeChannel.send({
+      content: `👋 Welcome ${member}!`,
+      embeds: [welcomeEmbed],
+    });
+  } catch (err) {
+    console.error("[Welcome Dispatch Error]:", err);
+  }
+});
+
+// ==========================================
+// MESSAGE LISTENER
 // ==========================================
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
+  if (!message.guild) return; // Ignore DMs for general channel logging and auto-mod
 
-  const content = message.content.trim();
-  const isEmojiCmd = /^>(emoji|emj)\b/i.test(content);
-
-  // 1. Emoji Dispatcher (>emoji or >emj)
-  if (isEmojiCmd) {
-    const rawQuery = content.replace(/^>(emoji|emj)/i, "").trim();
-
-    if (message.guild) {
-      const botPerms = message.channel.permissionsFor(message.client.user);
-      if (botPerms && botPerms.has("ManageMessages")) {
-        await message.delete().catch(() => {});
-      }
-    }
-
-    const emojiOutput = await selectEmojisForQuery(
-      message.client,
-      message.guild,
-      rawQuery,
-    );
-
-    return await sendImpersonatedEmojis(message, emojiOutput);
-  }
-
-  // Skip moderation and AI trigger logic for DMs
-  if (!message.guild) return;
-
-  // 2. Auto-Moderation & Dynamic Timeout Pipeline
-  // Intercepts all chat (including AI prompts and conversations)
+  // 1. Auto-Moderation Interceptor (Multilingual profanity & dynamic scaling timeouts)
   const wasViolated = await checkAndModerateProfanity(message);
-  if (wasViolated) {
-    // Prohibited content intercepted: do not persist to logs or trigger AI replies
-    return;
-  }
+  if (wasViolated) return;
 
-  // Silence AI chat during active minigames
+  // 2. Channel Isolation: Prevent interrupting active multiplayer game channels
   if (activeGameChannels.has(message.channel.id)) return;
 
   const permissions = message.channel.permissionsFor(client.user);
-  if (!permissions || !permissions.has(["ViewChannel", "SendMessages"])) {
-    return;
-  }
+  if (!permissions || !permissions.has(["ViewChannel", "SendMessages"])) return;
 
-  // 3. Persist Clean Message to 24-hr TTL Memory
+  // 3. Save to 24-hr TTL MongoDB memory
   ChatLog.create({
     guildId: message.guild.id,
     channelId: message.channel.id,
@@ -647,52 +564,48 @@ client.on("messageCreate", async (message) => {
 
     await message.channel.sendTyping();
 
-    // Route A: Channel Debrief Summary
+    // Summary debrief trigger
     if (/summary|what happened|recap|tl;?dr/i.test(cleanPrompt)) {
       try {
         const summary = await generateChatSummary(message.channel, 3);
 
         if (summary === "CAPACITY_EXHAUSTED") {
-          return message.reply({
-            embeds: [createCapacityEmbed(message.guild, message.author)],
-          });
+          return message.reply({ embeds: [createCapacityEmbed()] });
         }
 
         if (!summary) {
           return message.reply(
-            "📡 *Radar is clear — not enough chat activity in the last 6 hours to form a debrief.*",
+            "📡 *Radar is clear — not enough chat activity in the last 3 hours to form a debrief.*",
           );
         }
+
         const bannerFile = new AttachmentBuilder(
           path.join(__dirname, "assets/mars-banner.png"),
           {
             name: "mars-banner.png",
           },
         );
+
         const summaryEmbed = new EmbedBuilder()
           .setColor(0x5865f2)
-          .setTitle(`🛰️ Summary • Last 6 Hours`)
+          .setTitle("🛰️ Summary • Last 3 Hours")
           .setDescription(`${summary}`)
           .setImage("attachment://mars-banner.png")
           .setTimestamp();
 
         return message.reply({ embeds: [summaryEmbed], files: [bannerFile] });
       } catch (err) {
-        console.error("Summary Generation Error:", err);
-        return message.reply({
-          embeds: [createCapacityEmbed(message.guild, message.author)],
-        });
+        console.error("[Summary Error]:", err);
+        return message.reply({ embeds: [createCapacityEmbed()] });
       }
     }
 
-    // Route B: Contextual Q&A
+    // Contextual Chat Response
     try {
       const response = await answerContextualQuery(message, cleanPrompt);
 
       if (response === "CAPACITY_EXHAUSTED") {
-        return message.reply({
-          embeds: [createCapacityEmbed(message.guild, message.author)],
-        });
+        return message.reply({ embeds: [createCapacityEmbed()] });
       }
 
       const chunks = splitMessage(response);
@@ -701,10 +614,8 @@ client.on("messageCreate", async (message) => {
         await message.channel.send({ content: chunks[i] });
       }
     } catch (err) {
-      console.error("AI Generation Error:", err);
-      return message.reply({
-        embeds: [createCapacityEmbed(message.guild, message.author)],
-      });
+      console.error("[AI Error]:", err);
+      return message.reply({ embeds: [createCapacityEmbed()] });
     }
   }
 });
@@ -716,7 +627,9 @@ mongoose
     console.log("[Database] Connected to MongoDB Atlas.");
     client.login(process.env.DISCORD_TOKEN);
   })
-  .catch((err) => console.error("Database Connection Failure:", err));
+  .catch((err) =>
+    console.error("[Database Error] MongoDB connection failed:", err),
+  );
 
 const PORT = process.env.PORT || 3000;
 http

@@ -4,14 +4,78 @@ const ChatLog = require("../models/ChatLog");
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const MODEL_CANDIDATES = [
-  "gemini-3.5-flash-lite",
   "gemini-2.5-flash",
+  "gemini-3.5-flash-lite",
   "gemini-3.1-pro-preview",
 ];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Fetches Application Emojis uploaded to Discord Developer Portal
+async function executeGenAI(prompt) {
+  let lastError = null;
+
+  for (const model of MODEL_CANDIDATES) {
+    try {
+      const response = await ai.models.generateContent({
+        model: model,
+        contents: prompt,
+      });
+
+      if (response && response.text) {
+        return response.text;
+      }
+    } catch (err) {
+      lastError = err;
+      if (err.status === 429 || err.status === 503) {
+        await sleep(500);
+        continue;
+      }
+      console.warn(`[AI Service] ${model} warning:`, err.message || err);
+    }
+  }
+
+  console.error("[AI Service] Candidates exhausted:", lastError);
+  return "CAPACITY_EXHAUSTED";
+}
+
+/**
+ * High-speed translation: 0-budget thinking for sub-second generation
+ */
+async function translateToEnglish(text) {
+  if (!text || !text.trim()) return null;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: `Translate into natural, conversational English only. Do NOT output quotes, prefixes, or explanations:\n\n${text}`,
+      config: {
+        temperature: 0.1,
+        maxOutputTokens: 250,
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    });
+
+    if (response && response.text) {
+      return response.text.trim();
+    }
+  } catch (err) {
+    console.warn(
+      "[Fast Translation Error, attempting fallback]:",
+      err.message || err,
+    );
+    try {
+      const fallback = await ai.models.generateContent({
+        model: "gemini-3.5-flash-lite",
+        contents: `Translate into English only: ${text}`,
+      });
+      return fallback?.text?.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 async function getApplicationEmojiContext(client) {
   try {
     if (!client || !client.application) {
@@ -30,97 +94,46 @@ async function getApplicationEmojiContext(client) {
       const tag = emoji.animated
         ? `<a:${emoji.name}:${emoji.id}>`
         : `<:${emoji.name}:${emoji.id}>`;
-
       emojiMap.set(emoji.name.toLowerCase(), tag);
       promptLines.push(`- :${emoji.name}: -> ${tag}`);
     });
 
-    const listPrompt = `
-CUSTOM APPLICATION EMOJIS AVAILABLE:
-You can naturally use the following custom server emojis when contextually fitting:
-${promptLines.join("\n")}
-`;
-
+    const listPrompt = `\nCUSTOM APPLICATION EMOJIS AVAILABLE:\n${promptLines.join("\n")}\n`;
     return { listPrompt, emojiMap };
   } catch (err) {
-    console.error("[AI Service] Failed to fetch application emojis:", err);
     return { listPrompt: "", emojiMap: new Map() };
   }
 }
 
-async function executeGenAI(prompt) {
-  let lastError = null;
-
-  for (const model of MODEL_CANDIDATES) {
-    try {
-      const response = await ai.models.generateContent({
-        model: model,
-        contents: prompt,
-      });
-
-      if (response && response.text) {
-        return response.text;
-      }
-    } catch (err) {
-      lastError = err;
-      if (err.status === 429 || err.status === 503) {
-        console.warn(
-          `[AI Service] ${model} throttled (${err.status}). Trying next candidate...`,
-        );
-        await sleep(600);
-        continue;
-      }
-
-      console.warn(
-        `[AI Service] ${model} encountered error (${err.status || "ERR"}):`,
-        err.message || err,
-      );
-    }
-  }
-
-  console.error("[AI Service] All AI model candidates exhausted:", lastError);
-  return "CAPACITY_EXHAUSTED";
-}
-
-/**
- * Universal Multilingual Auto-Mod Inspection:
- * Uses fast AI inference to determine profanity, toxicity, or swearing in ANY language
- * (e.g. Spanish "puta", Arabic "اللعنة", Hindi "bkl/mc", etc.)
- */
 async function evaluateContentModeration(rawText) {
   const prompt = `
-You are a strict, multilingual content safety evaluator for a Discord community.
-Analyze the following text message for:
-1. "isProfane": true if the text contains vulgarity, curses, insults, slurs, obscene body references, or profanity in ANY language (e.g. English, Spanish, Arabic, Hindi, Hinglish, Russian, French, etc.). Else false.
-2. "isNonEnglish": true if the text contains non-English words, phrases, or scripts (e.g. Arabic, Hindi, Spanish, Cyrillic, etc.). Else false.
+Analyze this text for moderation.
+1. "isProfane": true if vulgar, curse, slur, or insult in ANY language (English, Hindi, Hinglish, Arabic, Spanish, etc.).
+2. "isNonEnglish": true if non-English script/words are present.
 3. "detectedLanguage": the language or "English".
 
-Return ONLY raw JSON with no Markdown backticks, matching this exact shape:
+Return ONLY raw JSON with no backticks:
 {"isProfane": boolean, "isNonEnglish": boolean, "detectedLanguage": "string"}
 
-Message to analyze:
+Text:
 "${rawText.replace(/"/g, '\\"')}"
 `;
 
   try {
-    const rawResult = await executeGenAI(prompt);
-    if (!rawResult || rawResult === "CAPACITY_EXHAUSTED") return null;
-
-    const cleaned = rawResult
+    const raw = await executeGenAI(prompt);
+    if (!raw || raw === "CAPACITY_EXHAUSTED") return null;
+    const cleaned = raw
       .replace(/```json/gi, "")
       .replace(/```/g, "")
       .trim();
     return JSON.parse(cleaned);
   } catch (err) {
-    console.error("[AI Moderation Evaluator Error]:", err);
     return null;
   }
 }
 
-// Generates an atmospheric channel debrief strictly in English
-async function generateChatSummary(channel, hours = 6) {
+async function generateChatSummary(channel, hours = 3) {
   const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
-
   const logs = await ChatLog.find({
     channelId: channel.id,
     createdAt: { $gte: cutoff },
@@ -128,45 +141,33 @@ async function generateChatSummary(channel, hours = 6) {
     .sort({ createdAt: 1 })
     .limit(200);
 
-  if (logs.length < 4) {
-    return null;
-  }
+  if (logs.length < 4) return null;
 
   const transcript = logs
     .map((l) => `[${l.authorTag}]: ${l.content}`)
     .join("\n");
 
   const prompt = `
-You are MARSIAN AI, summarizing the chat for a gaming server debrief.
-Summarize the conversation from the past ${hours} hours.
+You are MARSIAN AI, summarizing chat activity for a server debrief.
+Write the entire debrief strictly in clear, natural ENGLISH only.
 
-LANGUAGE ENFORCEMENT:
-- You must write the ENTIRE summary in clear, natural ENGLISH only.
-- Even if the users spoke in Hindi, Hinglish, or any other language, translate their points and write the debrief strictly in English.
-
-FORMATTING REQUIREMENTS:
-- DO NOT write an intro like "Here is the rundown" or "As an AI supervisor".
-- Write 3 punchy sections with the EXACT headings below:
-
+Sections required:
 ### 📡 The Narrative
-(Write 2-3 engaging, crisp sentences capturing the vibe, hot topics, banter, or issues.)
+(2-3 sentences capturing the topics and atmosphere)
 
 ### ⚔️ Highlights
-(Provide 2-3 bullet points: key jokes, game talk, arguments, or questions.)
+(2-3 bullet points: jokes, debates, gaming talk)
 
 ### 👑 Main Characters
-(Mention who dominated the chat and what they were up to, using bold usernames.)
+(Active participants in bold)
 
-Tone: Sharp, observant, slightly witty, but accurate.
-
-Chat Log:
+Chat:
 ${transcript}
 `;
 
   return await executeGenAI(prompt);
 }
 
-// Answers questions in natural plain text
 async function answerContextualQuery(message, query) {
   const recentLogs = await ChatLog.find({ channelId: message.channel.id })
     .sort({ createdAt: -1 })
@@ -176,34 +177,19 @@ async function answerContextualQuery(message, query) {
     .reverse()
     .map((l) => `[${l.authorTag}]: ${l.content}`)
     .join("\n");
-
   const { listPrompt, emojiMap } = await getApplicationEmojiContext(
     message.client,
   );
 
   const prompt = `
-You are MARSIAN AI, a helpful, sharp, and authentic Discord assistant for this server.
-Use the recent channel activity below to understand current discussions or inside context if relevant.
-You can answer general questions, technical coding queries, or casually banter.
-
-CRITICAL LANGUAGE RULE:
-- YOU MUST RESPOND SOLELY AND EXCLUSIVELY IN ENGLISH.
-- DO NOT mirror or speak in Hinglish, Hindi, Spanish, or any non-English language under any circumstances.
-- If the user asks their question in Hinglish or another language, understand their question, but answer strictly in English. You may add a friendly, casual reminder like: "(Also, friendly reminder: please keep chat in English so everyone here can follow along!)".
-
-CRITICAL FORMATTING INSTRUCTIONS:
-- Speak naturally like a human participant in a Discord chat.
-- Output ONLY plain text (standard Discord markdown like *italics*, **bold**, or code blocks is fine).
-- DO NOT wrap your entire response in quote blocks ('>') or decorative ASCII frames.
-- DO NOT add robotic prefixes like "Answer:", "AI Output:", or sign off with signatures.
-- NEVER ping @everyone or @here.
+You are MARSIAN AI, an intelligent, helpful Discord companion.
+Respond in natural plain text. You MUST respond solely in clear ENGLISH.
 ${listPrompt}
-- If you use any custom emojis listed above, write them naturally as :emoji_name: or use standard emojis where appropriate. Do not overuse them.
 
-Recent Channel Activity:
-${contextChat || "No recent channel logs recorded."}
+Recent Channel Context:
+${contextChat || "None"}
 
-User Question (@${message.author.username}):
+User (@${message.author.username}):
 ${query}
 `;
 
@@ -219,6 +205,7 @@ ${query}
 }
 
 module.exports = {
+  translateToEnglish,
   evaluateContentModeration,
   generateChatSummary,
   answerContextualQuery,

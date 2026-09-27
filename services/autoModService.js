@@ -70,7 +70,6 @@ const HINGLISH_DICTIONARY = new Set([
   "kaha",
   "kahan",
   "kidhar",
-  "bhai",
   "yaar",
   "bhaiya",
   "dost",
