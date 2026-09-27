@@ -4,6 +4,7 @@ const {
   ApplicationCommandType,
   REST,
   Routes,
+  PermissionFlagsBits,
   SlashCommandBuilder,
 } = require("discord.js");
 
@@ -59,6 +60,58 @@ const commands = [
     .setDescription(
       "Pick a secret entity and challenge the AI to guess it within 20 questions",
     ),
+
+  // Server Welcome Configuration Command
+  new SlashCommandBuilder()
+    .setName("setwelcome")
+    .setDescription(
+      "Configure custom welcome embeds for this server (Admins only)",
+    )
+    .addChannelOption((opt) =>
+      opt
+        .setName("channel")
+        .setDescription("Channel where welcome cards will be dispatched")
+        .setRequired(true),
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName("greeting")
+        .setDescription(
+          "Custom greeting text (Use {user}, {server}, {memberCount})",
+        )
+        .setRequired(false),
+    )
+    .addChannelOption((opt) =>
+      opt
+        .setName("rules")
+        .setDescription("Select your server's rules channel")
+        .setRequired(false),
+    )
+    .addChannelOption((opt) =>
+      opt
+        .setName("general")
+        .setDescription("Select your primary general chat channel")
+        .setRequired(false),
+    )
+    .addChannelOption((opt) =>
+      opt
+        .setName("roles")
+        .setDescription("Select your roles / self-assign channel")
+        .setRequired(false),
+    )
+    .addAttachmentOption((opt) =>
+      opt
+        .setName("banner")
+        .setDescription("Upload a custom welcome banner graphic")
+        .setRequired(false),
+    )
+    .addStringOption((opt) =>
+      opt
+        .setName("color")
+        .setDescription("Hex color code for the embed border (e.g. #FF0055)")
+        .setRequired(false),
+    )
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 ].map((cmd) => cmd.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);

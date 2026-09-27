@@ -237,7 +237,7 @@ async function checkAndModerateProfanity(message) {
           .fetch(message.author.id)
           .catch(() => null));
 
-      // Dynamic Timeout for > 20 Strikes
+      // Dynamic Timeout for > 5 Strikes
       if (strikes > 5 && member) {
         const timeoutSeconds = strikes; // e.g. 21s, 22s, 35s
         const timeoutMs = timeoutSeconds * 1000;
@@ -251,7 +251,7 @@ async function checkAndModerateProfanity(message) {
             );
 
             await message.channel.send({
-              content: `⚠️ ${message.author}, watch your language. Curse words in any language are not permitted! **[Warning #${strikes}]** \n\n 🔇 **Timeout Applied:** ${message.author} is muted for **${timeoutSeconds} seconds**.`,
+              content: `⚠️ **Warning #${strikes}**\n${message.author}, watch your language. Curse words are not permitted!\n\n-# 🔇 **Timeout Applied:** ${message.author} is muted for **${timeoutSeconds} seconds**.`,
             });
             return true;
           } catch (timeoutErr) {
@@ -262,11 +262,11 @@ async function checkAndModerateProfanity(message) {
 
       // If cuss word was in a non-English language, combine the cuss warning with the English policy
       const langNote = isNonEnglish
-        ? ` Please also note that conversations must remain in **English**.`
+        ? `Please also note that conversations must remain in **English**.`
         : "";
 
       await message.channel.send({
-        content: `⚠️ ${message.author}, watch your language. Curse words in any language are not permitted! \`[Warning #${strikes}]\`${langNote}`,
+        content: `⚠️ **Warning #${strikes}**\n${message.author}, watch your language. Curse words are not permitted!\n${langNote}`,
       });
 
       return true; // Blocks AI response and halts pipeline
@@ -282,7 +282,7 @@ async function checkAndModerateProfanity(message) {
   if (isNonEnglish) {
     try {
       await message.channel.send({
-        content: `🌐 ${message.author}, please keep the conversation in **English** so everyone in the server can understand and participate!`,
+        content: `${message.author}, please keep the conversation in **English** so everyone can participate!`,
       });
       return true; // Halts conversational AI execution
     } catch (err) {

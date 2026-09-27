@@ -61,7 +61,7 @@ function createCapacityEmbed(guild, user) {
     .setColor(0xff9900)
     .setDescription(
       `All active AI models are currently experiencing high request demand.\n\n` +
-        `> **Cooldown Advisory:** Please give the AI processors **45–60 seconds** to reset before initiating another request or channel recap.`,
+        `> **Cooldown Advisory:** Please give the AI processors **45-60 seconds** to reset before initiating another request or channel recap.`,
     )
     .setFooter({
       text: `Auto-Recovery`,
@@ -73,6 +73,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.DirectMessages,
@@ -312,6 +313,74 @@ async function sendContextImpersonatedEmojis(
     }
   }
 }
+
+const GuildWelcome = require("./models/GuildWelcome");
+
+// ==========================================
+// NEW MEMBER JOIN LISTENER
+// ==========================================
+client.on("guildMemberAdd", async (member) => {
+  if (member.user.bot) return;
+
+  try {
+    const config = await GuildWelcome.findOne({ guildId: member.guild.id });
+    if (!config || !config.isEnabled || !config.channelId) return;
+
+    const welcomeChannel = member.guild.channels.cache.get(config.channelId);
+    if (!welcomeChannel) return;
+
+    // Check bot permissions in target channel
+    const perms = welcomeChannel.permissionsFor(member.guild.members.me);
+    if (!perms || !perms.has(["SendMessages", "EmbedLinks"])) return;
+
+    // Substitute dynamic placeholders
+    const formattedGreeting = config.greetingMessage
+      .replace(/{user}/g, `${member}`)
+      .replace(/{username}/g, member.user.username)
+      .replace(/{server}/g, member.guild.name)
+      .replace(/{memberCount}/g, member.guild.memberCount);
+
+    // Build channel roadmap guide
+    const guideLines = [];
+    if (config.rulesChannelId)
+      guideLines.push(`📜 **Guidelines:** <#${config.rulesChannelId}>`);
+    if (config.chatChannelId)
+      guideLines.push(`💬 **General Chat:** <#${config.chatChannelId}>`);
+    if (config.rolesChannelId)
+      guideLines.push(`🎭 **Pick Roles:** <#${config.rolesChannelId}>`);
+
+    const welcomeEmbed = new EmbedBuilder()
+      .setColor(config.embedColor || 0x5865f2)
+      .setAuthor({
+        name: `Welcome to ${member.guild.name}!`,
+        iconURL: member.guild.iconURL({ dynamic: true }) || undefined,
+      })
+      .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
+      .setDescription(
+        `${formattedGreeting}\n\n` +
+          (guideLines.length > 0
+            ? `### 🧭 Quick Start Guide\n${guideLines.join("\n")}\n\n`
+            : "") +
+          `> *You are member **#${member.guild.memberCount}** to join the community.*`,
+      )
+      .setTimestamp()
+      .setFooter({
+        text: `ID: ${member.id}`,
+        iconURL: member.guild.iconURL({ dynamic: true }) || undefined,
+      });
+
+    if (config.bannerUrl) {
+      welcomeEmbed.setImage(config.bannerUrl);
+    }
+
+    await welcomeChannel.send({
+      content: `👋 Welcome ${member}!`,
+      embeds: [welcomeEmbed],
+    });
+  } catch (err) {
+    console.error("[Welcome Dispatch Error]:", err);
+  }
+});
 
 // ==========================================
 // UNIFIED INTERACTION HANDLER (SINGLETON)
@@ -591,7 +660,7 @@ client.on("messageCreate", async (message) => {
 
         if (!summary) {
           return message.reply(
-            "📡 *Radar is clear — not enough chat activity in the last 3 hours to form a debrief.*",
+            "📡 *Radar is clear — not enough chat activity in the last 6 hours to form a debrief.*",
           );
         }
         const bannerFile = new AttachmentBuilder(
@@ -602,7 +671,7 @@ client.on("messageCreate", async (message) => {
         );
         const summaryEmbed = new EmbedBuilder()
           .setColor(0x5865f2)
-          .setTitle(`🛰️ Summary • Last 3 Hours`)
+          .setTitle(`🛰️ Summary • Last 6 Hours`)
           .setDescription(`${summary}`)
           .setImage("attachment://mars-banner.png")
           .setTimestamp();

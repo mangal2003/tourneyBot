@@ -16,9 +16,9 @@ const {
   judgeDebate,
   askNextTwentyQuestion,
 } = require("../services/gameService");
+const GuildWelcome = require("../models/GuildWelcome");
 
 const activeGameChannels = new Set();
-
 async function handleGameInteractions(interaction) {
   if (!interaction.isChatInputCommand()) return;
 
@@ -733,6 +733,50 @@ async function handleGameInteractions(interaction) {
       "👑 **YOU DEFEATED THE AI!** You stumped me for all 20 questions! Reveal what it was in chat!",
     );
     activeGameChannels.delete(channel.id);
+  }
+
+  // ==========================================
+  // COMMAND: CONFIGURE WELCOME EMBED
+  // ==========================================
+  if (commandName === "setwelcome") {
+    if (!interaction.memberPermissions?.has("ManageGuild")) {
+      return interaction.reply({
+        content:
+          "🛑 You require the **Manage Server** permission to configure welcome embeds.",
+        ephemeral: true,
+      });
+    }
+
+    const channel = interaction.options.getChannel("channel");
+    const greeting = interaction.options.getString("greeting");
+    const rules = interaction.options.getChannel("rules");
+    const general = interaction.options.getChannel("general");
+    const roles = interaction.options.getChannel("roles");
+    const banner = interaction.options.getAttachment("banner");
+    const color = interaction.options.getString("color");
+
+    const updateData = {
+      channelId: channel.id,
+      isEnabled: true,
+    };
+
+    if (greeting) updateData.greetingMessage = greeting;
+    if (rules) updateData.rulesChannelId = rules.id;
+    if (general) updateData.chatChannelId = general.id;
+    if (roles) updateData.rolesChannelId = roles.id;
+    if (banner) updateData.bannerUrl = banner.url;
+    if (color && /^#[0-9A-F]{6}$/i.test(color)) updateData.embedColor = color;
+
+    await GuildWelcome.findOneAndUpdate(
+      { guildId: interaction.guild.id },
+      { $set: updateData },
+      { upsert: true, new: true },
+    );
+
+    return interaction.reply({
+      content: `✅ **Welcome card successfully configured!**\nNew members will be greeted in ${channel}.`,
+      ephemeral: true,
+    });
   }
 }
 
