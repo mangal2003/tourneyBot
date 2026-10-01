@@ -80,74 +80,33 @@ const client = new Client({
   rest: { timeout: 30000 },
 });
 
-// ==========================================
-// AUTO-SYNC EMOJIS TO APPLICATION LIBRARY
-// ==========================================
-async function syncEmojisToApplication(botClient) {
-  try {
-    if (!botClient.application) return;
-
-    const existingAppEmojis = await botClient.application.emojis.fetch();
-    const appEmojiNames = new Set(
-      existingAppEmojis.map((e) => e.name.toLowerCase()),
-    );
-
-    // Collect emojis across guilds
-    for (const [, guild] of botClient.guilds.cache) {
-      const gEmojis = await guild.emojis.fetch().catch(() => null);
-      if (!gEmojis) continue;
-
-      for (const [, emoji] of gEmojis) {
-        if (
-          !appEmojiNames.has(emoji.name.toLowerCase()) &&
-          existingAppEmojis.size < 50
-        ) {
-          try {
-            const ext = emoji.animated ? "gif" : "png";
-            const imgUrl = `https://cdn.discordapp.com/emojis/${emoji.id}.${ext}`;
-            const res = await fetch(imgUrl);
-            const arrayBuffer = await res.arrayBuffer();
-            const base64 = `data:image/${ext};base64,${Buffer.from(arrayBuffer).toString("base64")}`;
-
-            await botClient.application.emojis.create({
-              name: emoji.name,
-              image: base64,
-            });
-            existingAppEmojis.set(emoji.id, emoji);
-            appEmojiNames.add(emoji.name.toLowerCase());
-            console.log(
-              `[Auto-Sync] Cloned ${emoji.name} to Application Emojis for DM support`,
-            );
-          } catch (uploadErr) {
-            // Silently continue if app slots full
-            break;
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.warn("[Auto-Sync Warning]:", err.message);
-  }
-}
-
-client.once("clientReady", async () => {
+client.once("clientReady", () => {
   console.log(`[MARSIAN AI] Bot connected as ${client.user.tag}`);
-  await syncEmojisToApplication(client);
 });
 
 // ==========================================
-// VISUAL EMOJI GRID BUILDER
+// VISUAL EMOJI GRID BUILDER (SERVERS & DMs)
 // ==========================================
-const userGridState = new Map();
+const userGridState = new Map(); // userId -> { page: 0, count: 1 }
+
+let cachedAppEmojis = null;
+let lastAppFetch = 0;
 
 async function fetchAllAvailableEmojis(client, guild) {
   const emojiList = [];
 
-  // 1. Prioritize Bot Application Emojis (guaranteed to render inline everywhere)
+  // Application Emojis (Universal across DMs & Servers)
   try {
-    if (client.application) {
-      const appEmojis = await client.application.emojis.fetch();
-      appEmojis.forEach((e) => {
+    const now = Date.now();
+    if (!cachedAppEmojis || now - lastAppFetch > 60000) {
+      if (client.application) {
+        cachedAppEmojis = await client.application.emojis.fetch();
+        lastAppFetch = now;
+      }
+    }
+
+    if (cachedAppEmojis) {
+      cachedAppEmojis.forEach((e) => {
         emojiList.push({
           id: e.id,
           name: e.name,
@@ -158,41 +117,33 @@ async function fetchAllAvailableEmojis(client, guild) {
     }
   } catch (err) {}
 
-  // 2. Fetch Guild Emojis
-  if (guild) {
-    try {
-      const guildEmojis = await guild.emojis.fetch();
-      guildEmojis.forEach((e) => {
-        if (!emojiList.some((existing) => existing.id === e.id)) {
-          emojiList.push({
-            id: e.id,
-            name: e.name,
-            animated: e.animated,
-            tag: e.animated ? `<a:${e.name}:${e.id}>` : `<:${e.name}:${e.id}>`,
-          });
-        }
-      });
-    } catch (err) {}
-  } else {
-    // 3. DM Fallback: Mutual guilds
-    for (const [, g] of client.guilds.cache) {
-      g.emojis.cache.forEach((e) => {
-        if (!emojiList.some((existing) => existing.id === e.id)) {
-          emojiList.push({
-            id: e.id,
-            name: e.name,
-            animated: e.animated,
-            tag: e.animated ? `<a:${e.name}:${e.id}>` : `<:${e.name}:${e.id}>`,
-          });
-        }
-      });
-    }
+  // In DMs: Strictly application emojis
+  if (!guild) {
+    return emojiList;
   }
+
+  // In Servers: Server custom emojis + application emojis
+  try {
+    const guildEmojis =
+      guild.emojis.cache.size > 0
+        ? guild.emojis.cache
+        : await guild.emojis.fetch();
+    guildEmojis.forEach((e) => {
+      if (!emojiList.some((existing) => existing.id === e.id)) {
+        emojiList.push({
+          id: e.id,
+          name: e.name,
+          animated: e.animated,
+          tag: e.animated ? `<a:${e.name}:${e.id}>` : `<:${e.name}:${e.id}>`,
+        });
+      }
+    });
+  } catch (err) {}
 
   return emojiList;
 }
 
-function buildEmojiGrid(emojiList, page = 0, count = 1) {
+function buildEmojiGrid(emojiList, page = 0, count = 1, isDM = false) {
   const PAGE_SIZE = 20;
   const totalPages = Math.ceil(emojiList.length / PAGE_SIZE) || 1;
   const currentPage = Math.min(Math.max(0, page), totalPages - 1);
@@ -246,86 +197,12 @@ function buildEmojiGrid(emojiList, page = 0, count = 1) {
 
   rows.push(controlRow);
 
+  const titlePrefix = isDM ? "**MarsBot App Emojis**" : "**Select Emoji**";
+
   return {
-    content: `**Select Emoji** • Page ${currentPage + 1}/${totalPages} (${emojiList.length} total)`,
+    content: `${titlePrefix} • Page ${currentPage + 1}/${totalPages} (${emojiList.length} total)`,
     components: rows,
   };
-}
-
-// ==========================================
-// IMPERSONATION TRANSMISSION PIPELINE
-// ==========================================
-async function sendImpersonatedEmoji(interaction, emojiContent) {
-  // 1. Direct Message Handler: Send pure inline string without URL embeds
-  if (!interaction.guild) {
-    try {
-      if (interaction.channel) {
-        return await interaction.channel.send({ content: emojiContent });
-      }
-      return await interaction.user.send({ content: emojiContent });
-    } catch (err) {
-      return await interaction
-        .followUp({ content: emojiContent })
-        .catch(() => {});
-    }
-  }
-
-  // 2. Guild / Server Handler: Impersonate via Webhook
-  const member = interaction.member;
-  const user = interaction.user;
-  const displayName = (
-    member?.displayName ||
-    user.displayName ||
-    user.username
-  ).slice(0, 32);
-  const avatarURL = user.displayAvatarURL({
-    forceStatic: false,
-    extension: "png",
-    size: 512,
-  });
-
-  const botMember = interaction.guild.members.me;
-  const channel = interaction.channel;
-
-  if (!channel) return;
-
-  const channelPerms = channel.permissionsFor(botMember);
-
-  if (!channelPerms || !channelPerms.has("ManageWebhooks")) {
-    return await channel
-      .send({ content: `**${displayName}**: ${emojiContent}` })
-      .catch(() => {});
-  }
-
-  try {
-    const webhooks = await channel.fetchWebhooks();
-    let hook = webhooks.find(
-      (w) => w.owner?.id === interaction.client.user.id && w.token,
-    );
-
-    if (!hook) {
-      hook = await channel.createWebhook({
-        name: "Mars Relay",
-        avatar: interaction.client.user.displayAvatarURL(),
-        reason: "Impersonated emoji dispatch",
-      });
-    }
-
-    await interaction.client.rest.post(Routes.webhook(hook.id, hook.token), {
-      body: {
-        content: emojiContent,
-        username: displayName,
-        avatar_url: avatarURL,
-        allowed_mentions: { replied_user: false },
-      },
-      auth: false,
-    });
-  } catch (err) {
-    console.error("[Webhook Error]:", err);
-    await channel
-      .send({ content: `**${displayName}**: ${emojiContent}` })
-      .catch(() => {});
-  }
 }
 
 // ==========================================
@@ -334,85 +211,238 @@ async function sendImpersonatedEmoji(interaction, emojiContent) {
 client.on("interactionCreate", async (interaction) => {
   // 1. Interactive Emoji Grid Buttons
   if (interaction.isButton()) {
-    if (interaction.customId.startsWith("emj_send_")) {
-      await interaction.deferUpdate().catch(() => {});
+    try {
+      // Action: Dispatch chosen emoji
+      if (interaction.customId.startsWith("emj_send_")) {
+        const [, , id, isAnim, name] = interaction.customId.split("_");
+        const emojiTag =
+          isAnim === "1" ? `<a:${name}:${id}>` : `<:${name}:${id}>`;
 
-      const [, , id, isAnim, name] = interaction.customId.split("_");
-      const emojiTag =
-        isAnim === "1" ? `<a:${name}:${id}>` : `<:${name}:${id}>`;
+        const state = userGridState.get(interaction.user.id) || { count: 1 };
+        const output = Array(state.count).fill(emojiTag).join(" ");
+        userGridState.delete(interaction.user.id);
 
-      const state = userGridState.get(interaction.user.id) || { count: 1 };
-      const output = Array(state.count).fill(emojiTag).join(" ");
+        if (interaction.guild) {
+          // Server: Use Webhook impersonation
+          await interaction.deferUpdate().catch(() => {});
 
-      await sendImpersonatedEmoji(interaction, output);
-      userGridState.delete(interaction.user.id);
+          const member = interaction.member;
+          const user = interaction.user;
+          const displayName = (
+            member?.displayName ||
+            user.displayName ||
+            user.username
+          ).slice(0, 32);
+          const avatarURL = user.displayAvatarURL({
+            forceStatic: false,
+            extension: "png",
+            size: 512,
+          });
 
-      return await interaction.deleteReply().catch(() => {});
+          const botMember = interaction.guild.members.me;
+          const channel = interaction.channel;
+
+          if (
+            channel &&
+            channel.permissionsFor(botMember)?.has("ManageWebhooks")
+          ) {
+            try {
+              const webhooks = await channel.fetchWebhooks();
+              let hook = webhooks.find(
+                (w) => w.owner?.id === interaction.client.user.id && w.token,
+              );
+
+              if (!hook) {
+                hook = await channel.createWebhook({
+                  name: "Mars Relay",
+                  avatar: interaction.client.user.displayAvatarURL(),
+                  reason: "Impersonated emoji dispatch",
+                });
+              }
+
+              await interaction.client.rest.post(
+                Routes.webhook(hook.id, hook.token),
+                {
+                  body: {
+                    content: output,
+                    username: displayName,
+                    avatar_url: avatarURL,
+                    allowed_mentions: { replied_user: false },
+                  },
+                  auth: false,
+                },
+              );
+            } catch (err) {
+              await channel.send({ content: output }).catch(() => {});
+            }
+          } else {
+            await interaction.channel.send({ content: output }).catch(() => {});
+          }
+
+          return await interaction.deleteReply().catch(() => {});
+        } else {
+          // Direct Messages (User-Install context):
+          // Edit the reply directly into the message to prevent "Missing Access" errors
+          return await interaction.update({
+            content: output,
+            components: [],
+          });
+        }
+      }
+
+      // Action: Previous Page
+      if (interaction.customId.startsWith("emj_prev_")) {
+        await interaction.deferUpdate().catch(() => {});
+        const cur = parseInt(interaction.customId.replace("emj_prev_", ""), 10);
+        const state = userGridState.get(interaction.user.id) || { count: 1 };
+        const emojis = await fetchAllAvailableEmojis(
+          interaction.client,
+          interaction.guild,
+        );
+        const targetPage = Math.max(0, cur - 1);
+        userGridState.set(interaction.user.id, { ...state, page: targetPage });
+
+        const grid = buildEmojiGrid(
+          emojis,
+          targetPage,
+          state.count,
+          !interaction.guild,
+        );
+        return await interaction.editReply(grid).catch(() => {});
+      }
+
+      // Action: Next Page
+      if (interaction.customId.startsWith("emj_next_")) {
+        await interaction.deferUpdate().catch(() => {});
+        const cur = parseInt(interaction.customId.replace("emj_next_", ""), 10);
+        const state = userGridState.get(interaction.user.id) || { count: 1 };
+        const emojis = await fetchAllAvailableEmojis(
+          interaction.client,
+          interaction.guild,
+        );
+        const targetPage = cur + 1;
+        userGridState.set(interaction.user.id, { ...state, page: targetPage });
+
+        const grid = buildEmojiGrid(
+          emojis,
+          targetPage,
+          state.count,
+          !interaction.guild,
+        );
+        return await interaction.editReply(grid).catch(() => {});
+      }
+
+      // Action: Multiplier Cycle (1x -> 2x -> 3x -> 5x -> 8x -> 1x)
+      if (interaction.customId === "emj_count_cycle") {
+        await interaction.deferUpdate().catch(() => {});
+        const state = userGridState.get(interaction.user.id) || {
+          page: 0,
+          count: 1,
+        };
+        const counts = [1, 2, 3, 5, 8];
+        const nextIdx = (counts.indexOf(state.count) + 1) % counts.length;
+        const newCount = counts[nextIdx];
+        userGridState.set(interaction.user.id, { ...state, count: newCount });
+
+        const emojis = await fetchAllAvailableEmojis(
+          interaction.client,
+          interaction.guild,
+        );
+        const grid = buildEmojiGrid(
+          emojis,
+          state.page || 0,
+          newCount,
+          !interaction.guild,
+        );
+        return await interaction.editReply(grid).catch(() => {});
+      }
+
+      // Action: Close Menu
+      if (interaction.customId === "emj_close") {
+        await interaction.deferUpdate().catch(() => {});
+        userGridState.delete(interaction.user.id);
+        return await interaction.deleteReply().catch(() => {});
+      }
+    } catch (btnErr) {
+      console.error("[Button Error Guard]:", btnErr.message);
     }
+    return;
+  }
 
-    if (interaction.customId.startsWith("emj_prev_")) {
-      await interaction.deferUpdate().catch(() => {});
-      const cur = parseInt(interaction.customId.replace("emj_prev_", ""), 10);
-      const state = userGridState.get(interaction.user.id) || { count: 1 };
-      const emojis = await fetchAllAvailableEmojis(
-        interaction.client,
-        interaction.guild,
-      );
-      const targetPage = Math.max(0, cur - 1);
-      userGridState.set(interaction.user.id, { ...state, page: targetPage });
+  // 2. Right-Click Context Menu Command: "React With Emojis"
+  if (interaction.isMessageContextMenuCommand()) {
+    if (interaction.commandName === "React With Emojis") {
+      try {
+        const modal = new ModalBuilder()
+          .setCustomId(`emoji_modal_${interaction.targetMessage.id}`)
+          .setTitle("Emoji Dispatcher");
 
-      const grid = buildEmojiGrid(emojis, targetPage, state.count);
-      return await interaction.editReply(grid);
-    }
+        const input = new TextInputBuilder()
+          .setCustomId("emoji_vibe_input")
+          .setLabel("Enter Emotion, Action, or Vibe:")
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder("e.g. fire, happy, gg, laugh, cry, skull")
+          .setMinLength(2)
+          .setMaxLength(50)
+          .setRequired(true);
 
-    if (interaction.customId.startsWith("emj_next_")) {
-      await interaction.deferUpdate().catch(() => {});
-      const cur = parseInt(interaction.customId.replace("emj_next_", ""), 10);
-      const state = userGridState.get(interaction.user.id) || { count: 1 };
-      const emojis = await fetchAllAvailableEmojis(
-        interaction.client,
-        interaction.guild,
-      );
-      const targetPage = cur + 1;
-      userGridState.set(interaction.user.id, { ...state, page: targetPage });
-
-      const grid = buildEmojiGrid(emojis, targetPage, state.count);
-      return await interaction.editReply(grid);
-    }
-
-    if (interaction.customId === "emj_count_cycle") {
-      await interaction.deferUpdate().catch(() => {});
-      const state = userGridState.get(interaction.user.id) || {
-        page: 0,
-        count: 1,
-      };
-      const counts = [1, 2, 3, 5, 8];
-      const nextIdx = (counts.indexOf(state.count) + 1) % counts.length;
-      const newCount = counts[nextIdx];
-      userGridState.set(interaction.user.id, { ...state, count: newCount });
-
-      const emojis = await fetchAllAvailableEmojis(
-        interaction.client,
-        interaction.guild,
-      );
-      const grid = buildEmojiGrid(emojis, state.page || 0, newCount);
-      return await interaction.editReply(grid);
-    }
-
-    if (interaction.customId === "emj_close") {
-      await interaction.deferUpdate().catch(() => {});
-      userGridState.delete(interaction.user.id);
-      return await interaction.deleteReply().catch(() => {});
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        return await interaction.showModal(modal);
+      } catch (err) {
+        return;
+      }
     }
   }
 
-  // 2. Slash Commands
+  // 3. Modal Submissions (From Context Menu)
+  if (interaction.isModalSubmit()) {
+    if (interaction.customId.startsWith("emoji_modal_")) {
+      await interaction.deferReply({ ephemeral: false }).catch(() => {});
+
+      const targetMessageId = interaction.customId.replace("emoji_modal_", "");
+      const vibe = interaction.fields
+        .getTextInputValue("emoji_vibe_input")
+        .toLowerCase();
+
+      let targetMsg = null;
+      try {
+        targetMsg = await interaction.channel.messages.fetch(targetMessageId);
+      } catch {}
+
+      const allEmojis = await fetchAllAvailableEmojis(
+        interaction.client,
+        interaction.guild,
+      );
+      const matched = allEmojis
+        .filter((e) => e.name.toLowerCase().includes(vibe))
+        .map((e) => e.tag);
+
+      const output =
+        matched.length > 0 ? matched.slice(0, 3).join(" ") : "✨ 🔥 ⚡";
+
+      if (targetMsg) {
+        await targetMsg
+          .reply({ content: output, allowedMentions: { repliedUser: false } })
+          .catch(() => {});
+        return await interaction.deleteReply().catch(() => {});
+      } else {
+        return await interaction.editReply({ content: output }).catch(() => {});
+      }
+    }
+  }
+
+  // 4. Slash Commands
   if (interaction.isChatInputCommand()) {
     // /emj & /emoji
     if (
       interaction.commandName === "emj" ||
       interaction.commandName === "emoji"
     ) {
+      // In Servers: Ephemeral picker so it doesn't clutter public chat
+      // In DMs: Non-ephemeral so the final selection stays visible with the command header
+      const isEphemeral = !!interaction.guild;
+      await interaction.deferReply({ ephemeral: isEphemeral }).catch(() => {});
+
       const initialCount = interaction.options.getInteger("count") || 1;
       userGridState.set(interaction.user.id, { page: 0, count: initialCount });
 
@@ -422,48 +452,51 @@ client.on("interactionCreate", async (interaction) => {
       );
 
       if (emojis.length === 0) {
-        return await interaction.reply({
-          content: "❌ No custom emojis found in this server or bot library.",
-          flags: MessageFlags.Ephemeral,
-        });
+        const errorMsg = !interaction.guild
+          ? "❌ No application emojis found. Upload emojis under your bot's Developer Portal **Emojis** tab to use them in DMs."
+          : "❌ No custom emojis found in this server.";
+
+        return await interaction.editReply({ content: errorMsg });
       }
 
-      const grid = buildEmojiGrid(emojis, 0, initialCount);
-      return await interaction.reply({
-        ...grid,
-        flags: MessageFlags.Ephemeral,
-      });
+      const grid = buildEmojiGrid(emojis, 0, initialCount, !interaction.guild);
+      return await interaction.editReply(grid);
     }
 
     // /trn
     if (interaction.commandName === "trn") {
-      const isGuild = !!interaction.guild;
-      await interaction.deferReply({ ephemeral: isGuild }).catch(() => {});
+      await interaction.deferReply({ ephemeral: false }).catch(() => {});
 
       const text = interaction.options.getString("text");
       const translation = await translateToEnglish(text);
       const output = translation || "*(Could not translate text)*";
 
-      if (isGuild) {
-        await sendImpersonatedEmoji(interaction, output);
-        return await interaction.deleteReply().catch(() => {});
-      } else {
-        return await interaction.editReply({ content: output });
-      }
+      return await interaction.editReply({ content: output });
     }
 
-    // Games Router
-    try {
-      await handleGameInteractions(interaction);
-    } catch (err) {
-      if (interaction.deferred || interaction.replied) {
-        await interaction
-          .followUp({ content: "Internal execution error.", ephemeral: true })
-          .catch(() => {});
-      } else {
-        await interaction
-          .reply({ content: "Internal execution error.", ephemeral: true })
-          .catch(() => {});
+    // Game Router Isolation
+    const GAME_COMMANDS = [
+      "spyfall",
+      "twotruths",
+      "dungeon",
+      "court",
+      "twentyq",
+      "setwelcome",
+    ];
+    if (GAME_COMMANDS.includes(interaction.commandName)) {
+      try {
+        await handleGameInteractions(interaction);
+      } catch (err) {
+        console.error("[Game Router Error]:", err.message);
+        if (interaction.deferred && !interaction.replied) {
+          await interaction
+            .followUp({ content: "Internal execution error.", ephemeral: true })
+            .catch(() => {});
+        } else if (!interaction.replied && !interaction.deferred) {
+          await interaction
+            .reply({ content: "Internal execution error.", ephemeral: true })
+            .catch(() => {});
+        }
       }
     }
   }
@@ -692,12 +725,23 @@ client.on("messageCreate", async (message) => {
   }
 });
 
-mongoose.connect(process.env.MONGO_URI).then(() => {
-  console.log("[Database] Connected to MongoDB Atlas.");
-  client.login(process.env.DISCORD_TOKEN);
-});
+// Database & Server Initialization
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => {
+    console.log("[Database] Connected to MongoDB Atlas.");
+    client.login(process.env.DISCORD_TOKEN);
+  })
+  .catch((err) =>
+    console.error("[Database Error] MongoDB connection failed:", err),
+  );
 
 const PORT = process.env.PORT || 3000;
 http
-  .createServer((req, res) => res.end("MARSIAN AI Engine Operational"))
-  .listen(PORT);
+  .createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("MARSIAN AI Engine Operational");
+  })
+  .listen(PORT, () =>
+    console.log(`[Web] Keep-alive server running on port ${PORT}`),
+  );
