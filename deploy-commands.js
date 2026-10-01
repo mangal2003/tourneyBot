@@ -2,56 +2,71 @@ require("dotenv").config();
 const {
   REST,
   Routes,
+  SlashCommandBuilder,
+  ContextMenuCommandBuilder,
   ApplicationCommandType,
   PermissionFlagsBits,
 } = require("discord.js");
 
-// Pure raw API payload: guarantees Discord registers them everywhere (Guilds, DMs, Group DMs)
-const ALL_CONTEXTS = [0, 1, 2];
-const ALL_INTEGRATIONS = [0, 1];
+// Contexts: 0 = GUILD, 1 = BOT_DM, 2 = PRIVATE_CHANNEL (Group DMs)
+// Integration Types: 0 = GUILD_INSTALL, 1 = USER_INSTALL
+const CONTEXTS_EVERYWHERE = [0, 1, 2];
+const INTEGRATIONS_EVERYWHERE = [0, 1];
 
 const commands = [
-  // 1. /emj
+  // 1. Right-Click Context Menu: React With Emojis (Everywhere)
+  {
+    name: "React With Emojis",
+    type: ApplicationCommandType.Message,
+    contexts: CONTEXTS_EVERYWHERE,
+    integration_types: INTEGRATIONS_EVERYWHERE,
+  },
+
+  // 2. /emj - Visual Emoji Grid (Everywhere)
   {
     name: "emj",
-    description: "Dispatch custom server & reaction emojis",
+    description: "Open visual grid of custom server and app emojis",
     type: ApplicationCommandType.ChatInput,
-    contexts: ALL_CONTEXTS,
-    integration_types: ALL_INTEGRATIONS,
+    contexts: CONTEXTS_EVERYWHERE,
+    integration_types: INTEGRATIONS_EVERYWHERE,
     options: [
       {
-        name: "vibe",
-        description: "Emotion or vibe (e.g. fire, laugh, skull, gg, happy)",
-        type: 3, // STRING
+        name: "count",
+        description: "Repeat count (1-10)",
+        type: 4, // INTEGER
+        min_value: 1,
+        max_value: 10,
         required: false,
       },
     ],
   },
 
-  // 2. /emoji (Alias)
+  // 3. /emoji - Alias (Everywhere)
   {
     name: "emoji",
-    description: "Dispatch custom server & reaction emojis",
+    description: "Open visual grid of custom server and app emojis",
     type: ApplicationCommandType.ChatInput,
-    contexts: ALL_CONTEXTS,
-    integration_types: ALL_INTEGRATIONS,
+    contexts: CONTEXTS_EVERYWHERE,
+    integration_types: INTEGRATIONS_EVERYWHERE,
     options: [
       {
-        name: "vibe",
-        description: "Emotion or vibe (e.g. fire, laugh, skull, gg, happy)",
-        type: 3, // STRING
+        name: "count",
+        description: "Repeat count (1-10)",
+        type: 4, // INTEGER
+        min_value: 1,
+        max_value: 10,
         required: false,
       },
     ],
   },
 
-  // 3. /trn
+  // 4. /trn - Fast Translation (Everywhere)
   {
     name: "trn",
     description: "Translate foreign text, slang, or phrases into English",
     type: ApplicationCommandType.ChatInput,
-    contexts: ALL_CONTEXTS,
-    integration_types: ALL_INTEGRATIONS,
+    contexts: CONTEXTS_EVERYWHERE,
+    integration_types: INTEGRATIONS_EVERYWHERE,
     options: [
       {
         name: "text",
@@ -60,14 +75,6 @@ const commands = [
         required: true,
       },
     ],
-  },
-
-  // 4. Context Menu: React With Emojis
-  {
-    name: "React With Emojis",
-    type: ApplicationCommandType.Message,
-    contexts: ALL_CONTEXTS,
-    integration_types: ALL_INTEGRATIONS,
   },
 
   // 5. Game: /spyfall
@@ -128,7 +135,7 @@ const commands = [
     type: ApplicationCommandType.ChatInput,
   },
 
-  // 10. /setwelcome
+  // 10. /setwelcome (Guild Admin Only)
   {
     name: "setwelcome",
     description:
@@ -195,13 +202,13 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
       { body: commands },
     );
     console.log(
-      `[Deploy] ✅ Successfully registered ${data.length} commands with full DM and Guild support:`,
+      `[Deploy] Successfully registered ${data.length} global commands across Discord.`,
     );
-    data.forEach((c) =>
+    data.forEach((cmd) => {
       console.log(
-        `   - /${c.name} [Contexts: ${JSON.stringify(c.contexts || "Default")}]`,
-      ),
-    );
+        `   - /${cmd.name} (Contexts: ${JSON.stringify(cmd.contexts || "Guild")})`,
+      );
+    });
   } catch (error) {
     console.error("[Deploy Error]:", error);
   }
